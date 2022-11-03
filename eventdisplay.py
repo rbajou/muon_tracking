@@ -17,7 +17,6 @@ import glob
 from configuration import Telescope, str2telescope, Event
 from processing import InputType
 from analysis import EventType, RecoData
-import argparse
 from random import sample, choice
 
 import analysis as ana

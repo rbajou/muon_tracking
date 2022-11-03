@@ -7,6 +7,7 @@ Created on Fri Jan 08 2021
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines  #use for legend settings
+from typing import List, Union
 import os
 from pathlib import Path
 import inspect
@@ -22,29 +23,27 @@ import argparse
 from random import sample
 
 class PlotEvt:
-    def __init__(self, telescope:Telescope, recodir:str="", label:str="", outdir:str=os.environ['HOME']):
+    def __init__(self, telescope:Telescope, recodir:str, input_type=InputType.DATA, outdir:str=os.environ['HOME']):
         self.telescope = telescope
-        self.recodir = recodir
-        self.label = label
         self.outdir = outdir
+        print(glob.glob(os.path.join(recodir,  '', '*_reco*') )[0])
         try:
-            f_reco = glob.glob(os.path.join(recodir,  '', '*_reco.csv') )[0]
-            f_inlier = glob.glob(os.path.join(recodir,  '', '*_inlier.csv') )[0]
-            f_outlier = glob.glob(os.path.join(recodir,  '', '*_outlier.csv') )[0]
+            f_reco = glob.glob(os.path.join(recodir,  '', '*_reco*') )[0]
+            print(f_reco)
+            f_inlier = glob.glob(os.path.join(recodir,  '', '*_inlier*') )[0]
+            f_outlier = glob.glob(os.path.join(recodir,  '', '*_outlier*') )[0]
         except: raise ValueError
         reco_trk  = RecoData(file=f_reco, 
                                                                telescope=self.telescope, 
-                                                               input_type=InputType.REAL)
+                                                               input_type=input_type)
         inlier_data = RecoData(file=f_inlier, 
                                                                telescope=self.telescope, 
-                                                               input_type=InputType.REAL)
+                                                               input_type=input_type)
         outlier_data = RecoData(file=f_outlier, 
                                                                telescope=self.telescope, 
-                                                               input_type=InputType.REAL)
+                                                               input_type=input_type)
         self.df_reco = reco_trk.df
         self.evtID = list(self.df_reco.index)
-        #print(len(self.evtID))
-        #print(self.df_reco.head)
         self.df_inlier = inlier_data.df
         self.evtID_in = list(set(self.df_inlier.index))
         #print(len(self.evtID_in))
@@ -57,15 +56,13 @@ class PlotEvt:
         self.df_outlier = self.df_outlier.assign(sumADC_XY=pd.Series(sumADC_XY_out).values)
 
     def get_points(self, evtID:Union[List, int]):
-        #pos_panels = [(f"X_{p.position}", f"Y_{p.position}") for p in self.telescope.panels]
-        #print(pos_panels)
         l_evtID = []
         if type(evtID)==list: l_evtID.extend(evtID)
         else : l_evtID.append(evtID)
         
         Z = np.sort(list(set(self.df_inlier['Z'])))
         #print(self.df_inlier.head)
-        self.xyz_reco = { i : np.array([ np.concatenate( (self.df_reco.loc[i][[f'X_{p.position}', f'Y_{p.position}']].to_numpy(), p.position[1]) , axis=None )   for p in self.telescope.panels ]) for i in l_evtID}
+        self.xyz_reco = { i : np.array([ np.concatenate( (self.df_reco.loc[i][[f'X_{p.position.loc}', f'Y_{p.position.loc}']].to_numpy(), p.position.z) , axis=None )   for p in self.telescope.panels ]) for i in l_evtID}
         #print(self.xyz_reco)
         self.xyz_in = { i : self.df_inlier.loc[i][['X', 'Y', 'Z']].to_numpy() if i in self.evtID_in else np.zeros(3) for i in l_evtID}
         #print({ i : self.df_inlier.loc[i]['sumADC_XY'] if i in self.evtID_in else 0 for i in evtID })
@@ -88,13 +85,13 @@ class PlotEvt:
         ax = fig.add_subplot(111, projection='3d' )
         ax.set_facecolor('white')
         self.telescope.plot3D(ax, position=np.zeros(3))
-        vis_factor = 5
+        vis_factor = 100 #for size XY pints
         l_evtID = []
         if type(evtID)==list: l_evtID.extend(evtID)
         else : l_evtID.append(evtID)
         for i in l_evtID : 
             if isReco==True:
-                ####Track fit
+                ####Trajectory
                 xyz_r = self.xyz_reco[i]
                 xyz_r = xyz_r[~np.all( (xyz_r[:, :-1] == 0.), axis=1)]
                 xs, ys, zs = xyz_r[0] #1st intersection pt
@@ -113,7 +110,7 @@ class PlotEvt:
                     linewidths=1
                 )
 
-            ###Inliers & Outliers
+            ###Inliers & Outliers (RANSAC)
             xyz_i, xyz_o = self.xyz_in[i], self.xyz_out[i]
             if xyz_i.ndim == 1: xyz_i = xyz_i[np.newaxis, :]
             if xyz_o.ndim == 1: xyz_o = xyz_o[np.newaxis, :]
@@ -133,7 +130,7 @@ class PlotEvt:
                     xyz_i[:, 0],
                     xyz_i[:, 1],
                     xyz_i[:, 2],
-                    s= np.exp(arr_norm_sum_adc_in*vis_factor),
+                    s= arr_norm_sum_adc_in*vis_factor,
                     c= 'limegreen',
                     marker='o',
                     edgecolor='green',
@@ -157,7 +154,7 @@ class PlotEvt:
                     xyz_o[:, 1],
                     xyz_o[:, 2],
                     c='tomato',
-                    s= np.exp(arr_norm_sum_adc_out*vis_factor),
+                    s= arr_norm_sum_adc_out*vis_factor,#np.exp(arr_norm_sum_adc_out*vis_factor),
                     marker='o',
                     edgecolor='red',
                     label='outlier'
@@ -190,9 +187,7 @@ class PlotEvt:
                             markersize=10, label='inlier')
             outlier_mark = mlines.Line2D([], [], color='tomato',  marker='o', linestyle='None',
                             markersize=10, label='outlier')
-            # purple_triangle = mlines.Line2D([], [], color='purple', marker='^', linestyle='None',
-            #                   markersize=10, label='Purple triangles')
-
+          
             ax.legend(handles=[inlier_mark, outlier_mark], fontsize=16, loc='upper right')
     
 
@@ -207,13 +202,13 @@ if __name__ == '__main__':
     description='''Visualize reconstructed event''', epilog="""All is well that ends well.""")
     parser.add_argument('--telescope', '-tel', default=dict_tel["SNJ"], help='Input telescope name (e.g "tel_SNJ"). It provides the associated configuration.',  type=str2telescope)
     parser.add_argument('--reco_dir', '-i', default=None, help='/path/to/ransac/out/file/  One can input a data directory, a single datfile, or a list of data files e.g "--reco_data <file1.dat> <file2.dat>"', type=str)
-    parser.add_argument('--label', '-l', default=None, help='Label of the dataset',  type=str)
     parser.add_argument('--out_dir', '-o', default='/path/to/output/directory', help='Path to analysis output', type=str) 
     args=parser.parse_args()    
     Path(args.out_dir).mkdir(parents=True, exist_ok=True)
     print(f'outdir={args.out_dir}')
-    pl = PlotEvt(telescope=args.telescope, recodir=args.reco_dir, label=args.label, outdir=args.out_dir)
-    evtID_sample = sample(pl.evtID, 30) ##randomly draw event sample
+    print(args.reco_dir)
+    pl = PlotEvt(telescope=args.telescope, recodir=args.reco_dir, outdir=args.out_dir)
+    evtID_sample = sample(pl.evtID, 1) ##randomly draw event sample
     pl.get_points(evtID=evtID_sample)
     pl.plot3D(evtID=evtID_sample, isReco=True, isInlier=True, isOutlier=True) 
     plt.show()
