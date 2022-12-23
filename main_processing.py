@@ -78,7 +78,7 @@ ms = args.min_samples
 N  = args.max_trials
 is_fit_intersect = args.fit_intersections
 s= f"is_fit_intersect={is_fit_intersect}"
-print(s)
+#print(s)
 logging.info(s)
 
 s = f'RANSAC(residual_threshold={rt}mm, min_samples={ms}, max_trials={N})'
