@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from typing import List, Union
+from dataclasses import dataclass, field
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines  #use for legend settings
@@ -36,8 +37,7 @@ class RawEvtDisplay:
         self.telescope.plot3D(self.ax, position=np.zeros(3))
         #self.str_evt= f"{self.label}"
         
-    # def closeCanvas(self):
-    #     self.ax
+    
     def addEvt(self, evt:Event, color:str=None, **kwargs):
         if color is None: color = "#"+''.join([choice('0123456789ABCDEF') for i in range(6)])
         if self.nevt > self.max : return 0
@@ -307,6 +307,25 @@ class RecoEvtDisplay:
             ax.legend(handles=handles, fontsize=16, loc='upper right')
             ax.view_init(elev=10., azim=-60)
 
+
+@dataclass
+class EmissionSurface:
+    """
+    For plotting simulation event
+    """
+    shape : str
+    size : float #in mm
+    position : np.ndarray #array-like, in meter
+    def plot3D(self, ax):
+        s = self.size
+        X  = np.arange(self.position[0], self.position[0]+s, 10)
+        Y = np.arange(self.position[1], self.position[1]+s, 10)
+        X, Y = np.meshgrid(X, Y)
+        if self.shape == "plane" : Z = np.ones(shape=X.shape)*(self.position[2])#+self.distance
+        else: return None
+        ax.plot_surface(X,Y,Z, alpha=0.2, color='blue' )
+        return ax
+        
         
         
         

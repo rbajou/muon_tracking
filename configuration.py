@@ -3,6 +3,7 @@
 
 
 from dataclasses import dataclass, field
+from abc import abstractmethod
 from typing import List
 from enum import Enum, auto
 import numpy as np 
@@ -103,9 +104,9 @@ class Telescope:
     name : str
     panels : List[Panel]
     PMTs : List[PMT] = field(default_factory=list)
-    utm : np.ndarray = field(init=False) #coordinates (easting, northing, altitude)
-    azimuth : float = field(init=False)
-    elevation : float = field(init=False)
+    utm : np.ndarray = field(default_factory=lambda: np.ndarray(shape=(3,))) #coordinates (easting, northing, altitude)
+    azimuth : float = field(default_factory=float)
+    inclination : float = field(default_factory=float)
     
     def __str__(self):
         matrices = [p.matrix for p in self.panels]
@@ -136,32 +137,10 @@ class Telescope:
         barNoXr, barNoYr = np.arange(1, nbarsXr+1),np.arange(1, nbarsYr+1)
         DX_min, DX_max = np.min(barNoXf) - np.max(barNoXr) ,  np.max(barNoXf) - np.min(barNoXr) 
         DY_min, DY_max = np.min(barNoYf) - np.max(barNoYr) ,  np.max(barNoYf) - np.min(barNoYr) 
-        mat_los = np.fliplr( np.mgrid[DX_min:DX_max+1:1, DY_min:DY_max+1:1].reshape(2,-1).T.reshape(2*nbarsXf-1,2*nbarsYf-1,2) )
+        mat_los = np.mgrid[DX_min:DX_max+1:1, DY_min:DY_max+1:1].reshape(2,-1).T.reshape(2*nbarsXf-1,2*nbarsYf-1,2) 
         return mat_los
 
-    '''
-    def get_pixel_xy(self,front_panel, rear_panel):
-        """
-        Position XY pixels
-        """
-        func = lambda xf,xr: xf-xr
-        nbarsXf, nbarsYf  = front_panel.matrix.nbarsX,front_panel.matrix.nbarsY
-        nbarsXr, nbarsYr  = rear_panel.matrix.nbarsX,rear_panel.matrix.nbarsY
-        barNoXf, barNoYf = np.arange(1, nbarsXf+1),np.arange(1, nbarsYf+1)
-        barNoXr, barNoYr = np.arange(1, nbarsXr+1),np.arange(1, nbarsYr+1)
-        DX_min, DX_max = np.min(barNoXf) - np.max(barNoXr) ,  np.max(barNoXf) - np.min(barNoXr) 
-        DY_min, DY_max = np.min(barNoYf) - np.max(barNoYr) ,  np.max(barNoYf) - np.min(barNoYr) 
-        res_dx = np.tile(np.mgrid[DX_min:DX_max+1:1],  (2*nbarsXf-1, 1)).T
-        res_dy = np.tile(np.mgrid[DY_min:DY_max+1:1],  (2*nbarsYf-1, 1))
-        mat_dx, mat_dy = np.zeros(shape=(res_dx.shape[0],res_dx.shape[1],2)), np.zeros(shape=(res_dy.shape[0],res_dy.shape[1],2))
-        for i in range(1,nbarsXf+1): 
-            for j in np.flip(range(1,nbarsXf+1)): 
-                mat_dx[res_dx==func(i,j),:] = [i,j]
-                mat_dy[res_dy==func(i,j),:] = [j,i]
-        mat = np.concatenate((mat_dx, mat_dy), axis=2)
-        return mat
-    '''
-    
+
     def plot3D(self, ax, position):
         zticks=[]
         for p in self.panels:
@@ -205,6 +184,9 @@ pos_SNJ = [ Position(PositionEnum.Front,0), Position(PositionEnum.Middle1, 600),
 panels_SNJ = [ Panel(matrix=m, ID=9+i, position=pos, channelmap=ChMap16) for i, (m, pos) in enumerate(zip(matrix_SNJ, pos_SNJ)) ]
 pmt_SNJ =  [ PMT(ID=i+9, panel=pan, channelmap=ChMap16) for i, pan in enumerate(panels_SNJ) ]
 tel_SNJ= Telescope(name = "SNJ", panels=panels_SNJ, PMTs=pmt_SNJ)
+tel_SNJ.utm = np.array([642782.001377887, 1773682.54931093, 1145])
+tel_SNJ.azimuth = 20
+tel_SNJ.inclination = 16
 
 #####SBR: SuperBaronRouge GW Rocher Fendu 2021-2022 4 matrices = 4 * v1.1
 ChMapSBR = ChannelMap(file=os.path.join(script_path, "", "ChannelNoXYMaps/mapping16x16_SBR.json"))
@@ -225,45 +207,48 @@ panel_id_COP = [0, 1, 2]
 panels_COP = [ Panel(ID=panID, matrix=m, position=pos, channelmap=map) for (m, pos, panID, map) in zip(matrix_COP, pos_COP, panel_id_COP, ChMap_COP ) ]
 pmt_COP =  [ PMT(ID=int(pan.ID), panel=pan, channelmap=pan.channelmap) for pan in panels_COP ]
 tel_COP= Telescope(name = "COP", panels=panels_COP, PMTs = pmt_COP)
-
+# tel_COP.utm = np.array([])
+# tel_COP.azimuth = 
+# tel_COP.inclination = 
 
 ##BR: BaronRouge GW Rocher Fendu 2015-2019 3 matrices = 1 * v1.1 + 2 * v2.0 (mapping might be wrong)
 ChMap_BR = [ChMap32, ChMap16, ChMap32]
-npanels_BR = 3
 matrix_BR = [matrixv2_0, matrixv1_1, matrixv2_0]
 pos_BR = [ Position(PositionEnum.Front,0), Position(PositionEnum.Middle1, 600), Position(PositionEnum.Middle2, 1200)]
 panel_id_BR = [23, 24, 25] 
 panels_BR = [ Panel(ID=panID, matrix=m, position=pos, channelmap=map) for (m, pos, panID, map) in zip(matrix_BR, pos_BR, panel_id_BR, ChMap_BR ) ]
 pmt_BR = [ PMT(ID=int(pan.ID), panel=pan, channelmap=pan.channelmap) for pan in panels_BR ]
 tel_BR= Telescope(name = "BR", panels=panels_BR, PMTs = pmt_BR)
+tel_BR.utm = np.array([643345.81, 1774030.46,1267])
+tel_BR.azimuth = 295
+tel_BR.inclination = 15
 
-
-dict_tel = { 'SNJ': tel_SNJ, 'SBR': tel_SBR, 'COP':tel_COP, 'BR': tel_BR }
-##GV: GeantVert GW Matylis 2015-2019  (mapping might be wrong)
-# matrix_GV = [matrixv1_1 for _ in range(3)]
-# pos_GV = [PositionEnum.Front, PositionEnum.Middle1, PositionEnum.Rear]
-# panels_GV = list(Panel(matrix=m, ID=9+i, position=pos, channelmap=ChMap16) for i, (m, pos) in enumerate(zip(matrix_GV, pos_GV)) )
-# tel_GV = Telescope(name = "GeantVert", panels=panels_GV, spacing=600)
-# channelmaps_GV= { p.ID :  p.channelmap.map() for p  in panels_GV}
-# barwidths_GV = { p.ID :  int(m.scintillator.width) for p,m  in zip(panels_GV, matrix_GV)} #in mm
-# zpos_GV = { p.ID : tel_GV.spacing * i for i, p in enumerate(panels_GV)}
 
 #####OM: OrangeMecanique GW Fente du Nord 2017-2019 3 matrices = 1 * v1.1 + 2 * v2.0
-# matrix_OM = [matrixv2_0, matrixv1_1, matrixv2_0]
-# pos_OM = [PositionEnum.Front, PositionEnum.Middle1, PositionEnum.Rear]
-# panels_OM = list(Panel(matrix=m, ID=9+i, position=pos, channelmap=ChMap16) for i, (m, pos) in enumerate(zip(matrix_OM, pos_OM)) )
-# tel_OM= Telescope(name = "OrangeMecanique", panels=panels_GV, spacing=600)
-# channelmaps_OM= { p.ID :  p.channelmap.map() for p  in panels_OM}
-# barwidths_OM = { p.ID :  int(m.scintillator.width) for p,m  in zip(panels_OM, matrix_OM)} #in mm
-# zpos_OM = { p.ID : tel_OM.spacing * i for i, p in enumerate(panels_OM)}
-##ND: NoirDesir
-# matrix_ND = [matrixv2_0, matrixv1_1, matrixv2_0]
-# pos_ND = [PositionEnum.Front, PositionEnum.Middle1, PositionEnum.Rear]
-# panels_ND = list(Panel(matrix=m, ID=9+i, position=pos, channelmap=ChMap32) for i, (m, pos) in enumerate(zip(matrix_ND, pos_ND)) )
-# tel_ND = Telescope(name = "NoirDesir", panels=panels_ND, spacing=600)
-# channelmaps_ND= { p.ID :  p.channelmap.map() for p  in panels_ND}
-# barwidths_ND = { p.ID :  int(m.scintillator.width) for p,m  in zip(panels_ND, matrix_ND)} #in mm
-# zpos_ND = { p.ID : tel_ND.spacing * i for i, p in enumerate(panels_ND)}
+ChMap_OM = [ChMap32, ChMap16, ChMap32]
+matrix_OM = [matrixv2_0, matrixv1_1, matrixv2_0]
+pos_OM = [Position(PositionEnum.Front,0), Position(PositionEnum.Middle1, 600), Position(PositionEnum.Middle2, 1200)]
+panel_id_OM = [0, 1, 2]
+panels_OM = list(Panel(ID=panID, matrix=m, position=pos, channelmap=map) for(m, pos, panID, map) in zip(matrix_OM, pos_OM, panel_id_OM, ChMap_OM ) )
+pmt_OM = [ PMT(ID=int(pan.ID), panel=pan, channelmap=pan.channelmap) for pan in panels_OM ]
+tel_OM= Telescope(name = "OM", panels=panels_OM, PMTs = pmt_OM)
+tel_OM.utm = np.array([642954.802937528, 1774560.94061667, 1344.62142996887])
+tel_OM.azimuth = 192
+tel_OM.inclination = 13.9
+
+#####SB: SacreBleu GW Savane-à-mulets (ouest NJ) 2017-2019 3 matrices = 1 * v1.1 + 2 * v2.0
+ChMap_SB = [ChMap32, ChMap16, ChMap32]
+matrix_SB = [matrixv2_0, matrixv1_1, matrixv2_0]
+pos_SB = [Position(PositionEnum.Front,0), Position(PositionEnum.Middle1, 600), Position(PositionEnum.Middle2, 1200)]
+panel_id_SB = [26, 27, 28]
+panels_SB = list(Panel(ID=panID, matrix=m, position=pos, channelmap=map) for(m, pos, panID, map) in zip(matrix_SB, pos_SB, panel_id_SB, ChMap_SB ) )
+pmt_SB = [ PMT(ID=int(pan.ID), panel=pan, channelmap=pan.channelmap) for pan in panels_SB ]
+tel_SB= Telescope(name = "SB", panels=panels_SB, PMTs = pmt_SB)
+tel_SB.utm = np.array([642611.084416928, 1773797.5200942, 1185])
+tel_SB.azimuth = 44.85
+tel_SB.inclination = 15
+
+dict_tel = { 'SNJ': tel_SNJ, 'SBR': tel_SBR, 'COP':tel_COP, 'BR': tel_BR, 'OM': tel_OM, 'SB': tel_SB }
 
 
 def str2telescope(v):
@@ -291,7 +276,7 @@ if __name__ == '__main__':
 #    print(pos.)
     print(tel_SNJ.panels[-1].position.loc)
     print(tel_SNJ.panels[-1].position.z)
-    
+    print(tel_SNJ.utm)
 #    print(tel_SNJ.los['3p1'].shape[:-1])
  #   arr = tel_SNJ.get_los(tel_SNJ.panels[0], tel_SNJ.panels[-2])
  #   arr_rs =  arr.reshape(arr.shape[0], -1)
@@ -304,7 +289,7 @@ if __name__ == '__main__':
     # np.savetxt("/Users/raphael/Desktop/test_pix_xy.txt", arr_rs, fmt="%.0f")
     #os.system("code /Users/raphael/Desktop/test_pix_xy.txt")
     #print(tel_SNJ.panels[1].position[1])
- #   print(tel_BR.los['3p1'])
+    #print(tel_BR.los['3p1'])
     #print(channelmaps_SBR)
     # pos = Position.Front
     # pos.value = 60 

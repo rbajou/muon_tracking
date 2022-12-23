@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Created on Fri Jan 08 2021
-@author: Raphaël Bajou
-"""
 from argparse import ArgumentError
 from dataclasses import dataclass, field
 from typing import List, Union, Dict
 from enum import Enum, auto
 import numpy as np
-from matplotlib.ticker import MultipleLocator, FormatStrFormatter
+from matplotlib.ticker import MaxNLocator, MultipleLocator, FormatStrFormatter
 import matplotlib.pyplot as plt
+plt.rc('font', size=12)
+plt.rc('axes', labelsize=12)
+plt.rc('xtick', labelsize=12)
+plt.rc('ytick', labelsize=12)
+plt.rc('legend', fontsize=12)
 import matplotlib.colors as mcolors
 from matplotlib.gridspec import GridSpec
 from matplotlib.offsetbox import AnchoredText
@@ -21,6 +22,7 @@ import inspect
 import scipy.io as sio
 from scipy import interpolate
 from scipy.optimize import curve_fit
+from scipy import signal
 import pandas as pd
 import pylandau
 import os
@@ -33,8 +35,8 @@ script_path = os.path.dirname(os.path.abspath(filename))
 from configuration import Telescope, Panel
 from processing import InputType
 main_dir = os.environ["HOME"]
-from tools.tools import create_subtitle
-from tools.advanced_fit import fit_landau_migrad, gaus
+code_dir = os.path.join(main_dir,"muon_code_v2_0")
+import tools
 
 
 @dataclass
@@ -52,6 +54,8 @@ class RecoData:
     df : pd.DataFrame = field(init=False) 
     kwargs : Dict = field(default_factory=lambda : {"index_col":0, "delimiter":'\t'})
     index : List = field(default_factory=lambda: []) #index specific evts
+    is_all : bool = field(default_factory=lambda: False)
+    is_inlier : bool = field(default_factory=lambda: True)
     def __post_init__(self):
         if self.file.endswith(".csv") or self.file.endswith(".csv.gz"): 
             self.df= pd.read_csv(self.file, **self.kwargs) 
@@ -60,6 +64,16 @@ class RecoData:
         if len(self.index) != 0 :      
             self.df = self.df[self.df.index.isin(self.index)]
 
+        if not self.is_all : 
+            if 'inlier' in list(self.df.columns):
+                ####RANSAC tagging
+                if self.is_inlier : 
+                    self.df = self.df[self.df['inlier']==1]
+                    #print("inlierData : ", self.df.head)
+                else : 
+                    self.df = self.df[self.df['inlier']==0]
+                    #print("outlierData : ", self.df.head)
+                
 class EventType(Enum):
     GOLD = auto()
     MAIN = auto()
@@ -72,6 +86,7 @@ class DataType(Enum):
 param_dir=os.path.join(script_path,'','AcquisitionParams')
 
 
+    
 class AcqVars : 
     def __init__(self, telescope:Telescope, param_dir:str=param_dir, mat_files:dict=None, tomo:bool=False):
         self.tel = telescope
@@ -79,6 +94,7 @@ class AcqVars :
         if not self.param_dir.exists(): raise ValueError("Parameter directory not found.")
         barwidths = { p.ID :  float(p.matrix.scintillator.width) for p  in self.tel.panels }
         self.sconfig= telescope.configurations
+        self.thickness = {}
         if tomo: 
             acqVars_3p_file = Path(self.param_dir) / 'acqVars_3p.mat'
             acqVars_4p_file = Path(self.param_dir) / 'acqVars_4p.mat'
@@ -110,9 +126,13 @@ class AcqVars :
             if conf.startswith("3p"): 
                 acqVars_3p_mat = sio.loadmat(acqVars_3p_file) 
                 az_tomo, ze_tomo = acqVars_3p_mat['azimutAngleMatrix']*180/np.pi, acqVars_3p_mat['zenithAngleMatrix']*180/np.pi
+                if "apparentThickness" in acqVars_3p_mat:
+                    self.thickness["3p"] = acqVars_3p_mat["apparentThickness"]
             elif conf.startswith("4p"): 
                 acqVars_4p_mat = sio.loadmat(acqVars_4p_file) 
                 az_tomo, ze_tomo = acqVars_4p_mat['azimutAngleMatrix']*180/np.pi, acqVars_4p_mat['zenithAngleMatrix']*180/np.pi
+                if "apparentThickness" in acqVars_4p_mat:
+                    self.thickness["4p"] = acqVars_4p_mat["apparentThickness"]
             self.az_tomo[conf] = az_tomo
             self.ze_tomo[conf] = ze_tomo
             self.AZ_TOMO_MESH[conf], self.ZE_TOMO_MESH[conf] = np.meshgrid(self.az_tomo[conf],  self.ze_tomo[conf])
@@ -235,9 +255,18 @@ def GoF_inlier_outlier(df:pd.DataFrame, outfile:str):
 class EvtRate:
     def __init__(self, df:pd.DataFrame, dt_gap:int=3600):
         self.df = df
-        if 'timestamp_s' not in self.df.columns : raise KeyError("Dataframe has no 'timestamp' column.")
+        #self.timestamp_s = np.zeros(len(self.df))
+        if 'timestamp_s' in self.df.columns : 
+            pass
+        else : 
+            try : 
+                #timestamp_s = self.df.index.get_level_values('timestamp_s')
+                self.df = self.df.reset_index(level='timestamp_s')
+            except : 
+                raise KeyError("Dataframe has no 'timestamp_s' in index or column.")
+            
         self.run_duration = 0
-        time =self.df['timestamp_s'] + self.df['timestamp_ns']*10**(-8)
+        time = self.df['timestamp_s'] + self.df['timestamp_ns']*10**(-8)
         self.nevts = len(time)
         time_sort = np.sort(time)
         dtime = np.diff(time_sort) 
@@ -259,7 +288,7 @@ class EvtRate:
         date_end = date(date_end.year, date_end.month, date_end.day )#str(datetime.fromtimestamp(data_tomo[:, 1][-1]))
         self.date_start, self.date_end=  date_start, date_end
         ntimebins = int(abs(t_end - t_start)/width) #hour
-#        fig, ax = plt.subplots(figsize=(16,9))
+        #fig, ax = plt.subplots(figsize=(16,9))
         myFmt = mdates.DateFormatter('%d/%m %H:%M')
         ax.xaxis.set_major_formatter(myFmt) 
         print(f"run duration = {self.run_duration:1.3e}s = {self.run_duration/(3600):1.3e}h = {self.run_duration/(24*3600):1.3e}d")
@@ -273,122 +302,105 @@ class EvtRate:
         plt.ticklabel_format(axis="y", style="sci", scilimits=(0,0))
        
         
-        
-        
 
 class AnaHitMap: 
-    def __init__(self, anabase:AnaBase, input_type:InputType, panels:List[Panel], evtIDs:list=None):#,  binsXY:tuple, rangeXY:tuple, binsDXDY:tuple, rangeDXDY:tuple):
+    def __init__(self, anabase:AnaBase, input_type:InputType, panels:List[Panel], dict_filter:dict=None):#,  binsXY:tuple, rangeXY:tuple, binsDXDY:tuple, rangeDXDY:tuple):
+        self.tel = anabase.recofile.telescope
+        self.panels = panels
         self.df_reco= anabase.df_reco
         self.input_type = input_type
-        self.panels = panels
         self.label = anabase.label
-        self.evtIDs = evtIDs       
-        tel = anabase.recofile.telescope
-        self.sconfig = list(tel.configurations.keys()) #panels config in telescope (i.e 4-panel configuration = 2*3p + 1*4p)
-        self.DXDY = [] 
-        self.hDXDY = np.ndarray
+        self.dict_filter = dict_filter       
+        self.sconfig = list(self.tel.configurations.keys()) #panels config in telescope (i.e 4-panel configuration = 2*3p + 1*4p)
+        self.XY, self.DXDY, self.hDXDY = {}, {}, {}
         #brut (X,Y) hit maps
-        self.binsXY = [(pan.matrix.nbarsX, pan.matrix.nbarsY) for pan in self.panels]
-        self.rangeXY = [(  ( 0, int(pan.matrix.nbarsX) * float(pan.matrix.scintillator.width) ), (0, int(pan.matrix.nbarsY) * float(pan.matrix.scintillator.width) ) ) for pan in self.panels] 
-        #(DX,DY) maps : hits per telescope pixel (=line-of-sight) r_(DX,DY) 
-        self.binsDXDY  = [ (los.shape[0], los.shape[1]) for _, los in tel.los.items()]
-        w = tel.panels[0].matrix.scintillator.width
-        self.rangeDXDY = [ ((np.min(los[:,:,0])*w, np.max(los[:,:,0])*w), (np.min(los[:,:,1])*w, np.max(los[:,:,1])*w) ) for conf,los in tel.los.items()] 
+        self.binsXY = {pan.position.loc : (pan.matrix.nbarsX, pan.matrix.nbarsY) for pan in self.panels}
+        self.rangeXY = { pan.position.loc : (  ( 0, int(pan.matrix.nbarsX) * float(pan.matrix.scintillator.width) ), (0, int(pan.matrix.nbarsY) * float(pan.matrix.scintillator.width) ) ) for pan in self.panels }
         
-        colnames= ['gold', 'timestamp_s', 'timestamp_ns','time-of-flight','npts']#,'residuals']
+        #(DX,DY) maps : hits per telescope pixel (=line-of-sight) r_(DX,DY) 
+        self.binsDXDY  = { conf :  (los.shape[0], los.shape[1]) for conf, los in self.tel.los.items()}
+        w = self.tel.panels[0].matrix.scintillator.width
+        self.rangeDXDY = { conf : ((np.min(los[:,:,0])*w, np.max(los[:,:,0])*w), (np.min(los[:,:,1])*w, np.max(los[:,:,1])*w) ) for conf,los in self.tel.los.items()}
         
         self.df=self.df_reco.copy()
-        #####N.B different events might share the same index evtID, so better reindex the dataframe with the row loc
-#        self.df.index = np.arange(0, len(self.df.index))
+        #####N.B Sometimes dataset contains events that share the same index evtID, so better reindex the dataframe with the row num
+        #self.df.index = np.arange(0, len(self.df))        
+        colnames= ['timestamp_ns', 'gold']#,'residuals']
         self.df_DXDY = self.df[colnames]
-    
+        self.mix  = pd.MultiIndex.from_arrays([self.df.index,self.df['timestamp_s']], names=['evtID', 'timestamp_s'])
+        self.df_DXDY = self.df_DXDY.set_index(self.mix)
         self.fill_dxdy()
     
         
     def fill_dxdy(self):
-        pos_panels = [(f"X_{p.position.loc}", f"Y_{p.position.loc}") for p in self.panels] 
         df=self.df.copy()
-        X = np.array([ df[x].values for i, (x,y) in enumerate(pos_panels) ])
-        Y = np.array([ df[y].values for i, (x,y) in enumerate(pos_panels) ])
-        self.XY = [X, Y]
-        pos_panels = [(f"X_{p.position.loc}", f"Y_{p.position.loc}") for p in self.panels]
-#        X,Y = self.XY
-        s = np.array([ ( (Xmin< df[xpos]) & (df[xpos]<Xmax) &  (Ymin< df[ypos]) & (df[ypos]<Ymax) ) for i, ( (xpos,ypos), ((Xmin, Xmax), (Ymin, Ymax)) ) in enumerate( zip(pos_panels, self.rangeXY) ) ])
-        if len(self.panels) == 4:  
-            idx = [ df[s[0] & s[2]].index, df[s[1] & s[-1]].index, df[s[0] & s[-1]].index ]
-            DX = np.array([X[0][s[0] & s[2] ] -  X[2][ s[0] & s[2] ], X[1][ s[1] & s[-1] ] -  X[-1][s[1] & s[-1] ], X[0][s[0] & s[-1]] -  X[-1][s[0] & s[-1]] ], dtype=object)
-            DY = np.array([Y[0][s[0] & s[2] ] -  Y[2][ s[0] & s[2] ], Y[1][ s[1] & s[-1] ] -  Y[-1][s[1] & s[-1] ], Y[0][s[0] & s[-1]] -  Y[-1][s[0] & s[-1]] ], dtype=object)
+        df = df.set_index(self.mix)
+        for pan in self.tel.panels : 
+            key = pan.position.loc
+            xpos, ypos = f"X_{key}", f"Y_{key}"
+            ((Xmin, Xmax), (Ymin, Ymax)) = self.rangeXY[key]
+            sel =  ( (Xmin< df[xpos]) & (df[xpos]<Xmax) &  (Ymin< df[ypos]) & (df[ypos]<Ymax) )
+            self.XY[key] = [df[sel][xpos].values, df[sel][ypos].values]
             
-        else : 
-            idx = [ df[s[0] & s[-1]].index ]
-            DX, DY = np.array([X[0][s[0] & s[-1]] -  X[-1][s[0] & s[-1]]]) , np.array([Y[0][s[0] & s[-1]] -  Y[-1][s[0] & s[-1]] ], dtype=object)
+        self.idx, DX, DY  =  {}, {}, {}
+        for conf, panels in self.tel.configurations.items():
+            front, rear = panels[0].position.loc, panels[-1].position.loc
+            ((Xminf, Xmaxf), (Yminf, Ymaxf)) = self.rangeXY[front]
+            ((Xminr, Xmaxr), (Yminr, Ymaxr)) = self.rangeXY[rear]
+            xposf, yposf = f"X_{front}", f"Y_{front}"
+            xposr, yposr = f"X_{rear}", f"Y_{rear}"
+            sfront =  ( (Xminf< df[xposf]) & (df[xposf]<Xmaxf) &  (Yminf< df[yposf]) & (df[yposf]<Ymaxf) )
+            srear = ( (Xminr < df[xposr]) & (df[xposr]<Xmaxr) &  (Yminr< df[yposr]) & (df[yposr]<Ymaxr) )
+            sel = (sfront & srear)
+            ###apply filter on evt ids
+            if self.dict_filter is not None:                
+                ###if filter multi_index :
+                filter = self.dict_filter[conf]
+                self.idx[conf]  = df[sel].loc[filter].index
+            else : self.idx[conf]  = df[sel].index
+            dftmp = df.loc[self.idx[conf]] 
+            DX[conf], DY[conf] =  dftmp[xposf].values - dftmp[xposr].values, dftmp[yposf].values - dftmp[yposr].values
+            
+            pass
 
-        pd.options.mode.chained_assignment = None  # default='warn'
-        
-        #print(df.loc[df.index.duplicated(keep=False)==True].sort_index().head)
-        
-        for i, c in enumerate(self.sconfig): 
-            #print(c)
-            #print("okokok")
-            #print(len(idx[i]), len(DX[i]), len(DY[i]))
-            #print(len(df.loc[(df.index.duplicated()==True ) & (df.index.isin(idx[i]))]))
-            #print(len(df.loc[idx[i]]))
-            #print(len(df.loc[df.index.isin(idx[i])]))
-            #print(len(df.loc[df.index.duplicated()==True]))
-            #print(len(df.loc[idx[i]].loc[idx[i].duplicated()].index))
-            #print(len(set(df.loc[idx[i]])))
-            #print(len(self.df_DXDY.loc[idx[i]]))
-            #print(np.sort(idx[i]))
-            #print(np.sort(df.index))
-            #print(np.sort(self.df_DXDY.index))
-            #print(len(list(set(idx[i]) & set(self.df_DXDY.index))))
-            #print(len(list(set(idx[i]) & set(df.index))))
-            #print(len(list((set(idx[i]) & set(df.index)))))
-            #print(len(list(set(idx[i]).symmetric_difference(set(df.index)))))#& set(idx[i]))))
-            #print(type(DX[i]))
-            self.df_DXDY.loc[idx[i], f'DX_{c}'], self.df_DXDY.loc[idx[i], f'DY_{c}'] = DX[i], DY[i]
-        
-        self.sel = s
-        self.DXDY = [DX, DY]
-        self.hDXDY = { conf : np.histogram2d(DX[i], DY[i], bins=[bdx,bdy], range=[dxlim, dylim] )[0] for i, (conf,(bdx,bdy), (dxlim, dylim)) in enumerate( zip(self.sconfig, self.binsDXDY, self.rangeDXDY) ) }
+        self.hDXDY = { conf : np.histogram2d(DX[conf], DY[conf], bins=[bdx,bdy], range=[dxlim, dylim] )[0] for (conf,(bdx,bdy)), (_,(dxlim, dylim)) in zip(self.binsDXDY.items(), self.rangeDXDY.items())  }
         
 class PlotHitMap:
     """Class to plot reconstructed trajectories hit maps."""
-    def __init__(self, hitmaps:List[AnaHitMap], outdir:str, mask:dict=None) :#, reco_file:RecoData, outdir:str, label:str ):
+    def __init__(self, hitmaps:List[AnaHitMap], outdir:str) :
         self.hitmaps = hitmaps
         self.sconfig = self.hitmaps[0].sconfig
         self.panels  = self.hitmaps[0].panels
-        self.outdir = outdir
-        self.mask = mask
+        self.outdir  = outdir
         
-    def XY_map(self, invert_yaxis:bool=True, transpose:bool=False):
+    def XY_map(self, invert_yaxis:bool=False, transpose:bool=False):
         """Plot hit map for reconstructed primaries and all primaries"""
 
         if len(self.hitmaps)==0:
             raise Exception("Fill all XY vectors first")
        
-        fig = plt.figure(0, figsize=(16,9))
-        gs = GridSpec(len(self.hitmaps), len(self.panels), left=0.05, right=0.95, wspace=0.2, hspace=0.5)
+        fig = plt.figure(0, figsize=(9,16))
+        gs = GridSpec( len(self.panels), len(self.hitmaps), left=0.05, right=0.95, wspace=0.2, hspace=0.5)
        
         labels = [ hm.label for hm in self.hitmaps]
-        #XYmaps = [ hm.XY for hm in self.hitmaps]
-        for l, (name, hm) in enumerate(zip(labels, self.hitmaps)) : #dict_XY.items()):
-            X, Y = hm.XY
-            create_subtitle(fig, gs[l, ::], f'{name}')
+        for l, (name, hm) in enumerate(zip(labels, self.hitmaps)) : #dict_XY.items()): 
+            tools.tools.create_subtitle(fig, gs[l, ::], f'{name}')
             for i, p in enumerate(self.panels):
-                ax = fig.add_subplot(gs[l,i], aspect='equal')
-                if i== 0: ax.set_ylabel('Y')
-                ax.set_xlabel('X')
-                ax.get_yaxis().set_visible(False)
-                #ax.set_title(f"\n {p.position.}")
+                
+                key = p.position.loc
+                
+                X, Y = hm.XY[key]
+                ax = fig.add_subplot(gs[i,l], aspect='equal')
+                #ax.get_yaxis().set_visible(False)
+                ax.set_title(f"{p.position.loc}")
+                if i == len(self.panels)-1: ax.set_title("Rear")
                 ax.grid(False)
-                s = hm.sel[i]
-                counts, xedges, yedges, im1 = ax.hist2d( X[i][s], Y[i][s],cmap='viridis', bins=hm.binsXY[i], range=hm.rangeXY[i] ) #im1 = ax.imshow(hXY[i])
-                if invert_yaxis: ax.invert_yaxis()
+                counts, xedges, yedges, im1 = ax.hist2d( X, Y,cmap='viridis', bins=hm.binsXY[key], range=hm.rangeXY[key] ) #im1 = ax.imshow(hXY[i])
                 if transpose: 
-                    if i== 0: ax.set_ylabel('X')
-                    ax.set_xlabel('Y')
-                    ax.hist2d(Y[i][s], X[i][s], cmap='viridis', bins=hm.binsXY[i], range=hm.rangeXY[i] ) #im1 = ax.imshow(hXY[i])
+                    ax.hist2d(Y, X, cmap='viridis', bins=hm.binsXY[key], range=hm.rangeXY[key] ) #im1 = ax.imshow(hXY[i])
+                if invert_yaxis: ax.invert_yaxis()
+                if i == len(self.panels)-1 : ax.set_xlabel('Y')
+                ax.set_ylabel('X')
                 divider1 = make_axes_locatable(ax)
                 cax1 = divider1.append_axes("right", size="5%", pad=0.05)
                 plt.colorbar(im1, cax=cax1, format='%.0e')
@@ -396,8 +408,9 @@ class PlotHitMap:
 
         gs.tight_layout(fig)
         plt.savefig(
-            os.path.join(self.outdir,"", f"brut_hit_maps.png")
+            os.path.join(self.outdir,'', f'brut_hit_maps.png')
         ) 
+        print(f"save {os.path.join(self.outdir,'', f'brut_hit_maps.png')}")
         plt.close()
         
     def DXDY_map(self, invert_xaxis:bool=True, invert_yaxis:bool=False, transpose:bool=False, fliplr:bool=False):
@@ -408,17 +421,16 @@ class PlotHitMap:
         nconfigs = len(self.sconfig)
         gs = GridSpec(len(self.hitmaps), nconfigs , left=0.05, right=0.95, wspace=0.2, hspace=0.1)
         for l, (name, hm) in enumerate(zip(labels, self.hitmaps)):
-            DX, DY = hm.DXDY
-            create_subtitle(fig, gs[l, ::], f'{name}')
-            for c, conf in enumerate(self.sconfig):
-                ax1 = fig.add_subplot(gs[l,c], aspect='equal')
+            tools.tools.create_subtitle(fig, gs[l, ::], f'{name}')
+            for i, conf in enumerate(self.sconfig):
+                ax1 = fig.add_subplot(gs[l,i], aspect='equal')
                 #if c == 0 : 
                 #    ax1.set_ylabel('$\\Delta$Y [mm]', fontsize=16)
                 #else : ax1.get_yaxis().set_visible(False)
-                ax1.set_ylabel('$\\Delta$X [mm]', fontsize=16)
-                ax1.set_xlabel('$\\Delta$Y [mm]', fontsize=16)
-                DX_min, DX_max = hm.rangeDXDY[c][0]
-                DY_min, DY_max = hm.rangeDXDY[c][1]
+                if i == 0 : ax1.set_ylabel('$\\Delta$X [mm]')#, fontsize=16)
+                ax1.set_xlabel('$\\Delta$Y [mm]')#, fontsize=16)
+                DX_min, DX_max = hm.rangeDXDY[conf][0]
+                DY_min, DY_max = hm.rangeDXDY[conf][1]
                 h = hm.hDXDY[conf]
                 if transpose: h = h.T
                 if fliplr : h = np.fliplr(h)
@@ -433,8 +445,9 @@ class PlotHitMap:
                 plt.colorbar(im1, cax=cax1, extend='max')
         gs.tight_layout(fig)
         plt.savefig(
-            os.path.join(self.outdir, f"NHits_dXdY_map.png")
+            os.path.join(self.outdir, f'NHits_dXdY_map.png')
         )
+        print(f"save {os.path.join(self.outdir, f'NHits_dXdY_map.png')}")
         plt.close()
      
     def DXDY_map_az_ze(self, az=None, ze=None, invert_yaxis:bool=False, transpose:bool=False, fliplr:bool=False):
@@ -449,10 +462,10 @@ class PlotHitMap:
         #sns.set_style("whitegrid")
         fig = plt.figure(1, figsize= (16,9))
         for l,  hm in enumerate(self.hitmaps):
-            hist = hm.hDXDY
             name = hm.label
-            create_subtitle(fig, gs[l, ::], f'{name}')
+            tools.tools.create_subtitle(fig, gs[l, ::], f'{name}')
             for c, conf in enumerate(self.sconfig):
+                hist = hm.hDXDY[conf]
                 ax = fig.add_subplot(gs[l,c], aspect='equal')
                 h = hist[conf]
                 if transpose: h = h.T
@@ -480,180 +493,7 @@ class PlotHitMap:
         )
         plt.close()
 
-
-class Perf:
-    
-    def __init__(self, HitMapProcess:AnaHitMap, HitMapPrim:AnaHitMap, HitMapAllPrim:AnaHitMap, outdir:str):
-       
-        self.hitmap_process =  HitMapProcess
-        self.hitmap_prim =  HitMapPrim
-        self.hitmap_allprim = HitMapAllPrim
-        self.label = HitMapProcess.label  
-        self.outdir = outdir
-        DX_reco, DY_reco = np.asarray(self.hitmap_process.DXDY)
-        
-        DX_prim, DY_prim = np.asarray(self.hitmap_prim.DXDY)
-        self.nconfigs = DX_reco.shape[0]
-        
-        self.hDXDY_reco = self.hitmap_process.hDXDY#np.array([np.histogram2d(DX_reco[i], DY_reco[i], bins=[self.binsDX,self.binsDY], range=[self.DXlim, self.DYlim] )[0] for i in range(DX_reco.shape[0] )  ])
-        self.hDXDY_prim = self.hitmap_prim.hDXDY #np.array([np.histogram2d(DX_prim[i], DY_prim[i], bins=[self.binsDX,self.binsDY], range=[self.DXlim, self.DYlim] )[0] for i in range(DX_reco.shape[0] )  ])
-        self.hDXDY_allprim = self.hitmap_allprim.hDXDY
-        self.reff = np.ndarray #reconstruction efficiency
-
-    def plot_reco_efficiency(self, az, ze):    
-        hDXDY_allprim = np.copy(self.hDXDY_allprim)
-        hDXDY_allprim[hDXDY_allprim == 0.] = np.nan
-        self.reff =  self.hDXDY_reco/hDXDY_allprim
-        self.reff[np.isnan(self.reff)] = 0.
-        fig = plt.figure(13, figsize= (12,6))
-        gs = GridSpec(1, len(self.reff))
-        
-        for i, eff  in enumerate(self.reff) :
-            DX_min, DX_max = self.hitmap_process.rangeDXDY[0]#np.min(ze),np.max(ze) #
-            DY_min, DY_max = self.hitmap_process.rangeDXDY[1]#np.min(az),np.max(az)#self.hitmap_process.rangeDXDY[1]
-        
-            dx = np.linspace(DX_min, DX_max, self.hitmap_process.binsDXDY[0])
-            dy = np.linspace(DY_min, DY_max, self.hitmap_process.binsDXDY[1])
-            ax = fig.add_subplot(gs[0,i], aspect='equal')
-           
-            ax.grid(False)
-            #ax.set_ylabel('$\\Delta$X', fontsize=16) #ax.set_ylabel('zenith $\\theta$ ($^{\circ}$)', fontsize=16)
-            ax.set_ylabel('Zenith [deg]', fontsize=14)
-            # ax.set_ylabel('azimuth $\\varphi$ ($^{\circ}$)', fontsize=16)
-            
-            #ax.get_yaxis().set_visible(False)
-            #ax.set_xlabel('$\\Delta$Y', fontsize=16)
-            ax.set_xlabel('Azimuth [deg]', fontsize=14)
-            
-            mean_eff = np.mean(eff)
-            mean_err = self.error_eff(x=self.hDXDY_reco[i], y=self.hDXDY_allprim[i])
-            print(f'mean_eff={mean_eff:.2f}$\\pm${mean_err:.2f}')
-            #c = ax.pcolor(dy, dx, eff, cmap='jet',  vmin=eff.min(), vmax=1., label='$\\epsilon_{reco}$='+f'{mean_eff:.2f}') #norm=LogNorm(vmin=F_min, vmax=F_max)
-            c = ax.pcolor(eff, cmap='jet',  vmin=eff.min(), vmax=1., label='$\\epsilon_{reco}$='+f'{mean_eff:.2f}') #norm=LogNorm(vmin=F_min, vmax=F_max)
-            locs = ax.get_xticks()[:-1]  # Get the current locations and labels.
-            new_x = np.array([int(az[i][int(l)]) for l in locs])#np.linspace(np.min(az[i]), np.max(az[i]), len(locs))
-            new_y = np.array([int(ze[i][int(l)]) for l in locs])
-            ax.set_xticks(locs, new_x)
-            ax.set_yticks(locs, new_y)
-            divider = make_axes_locatable(ax)
-            cax = divider.append_axes("right", size="5%", pad=0.05)
-            plt.colorbar(c, cax=cax, extend='max')
-            #ax.legend(loc='upper right', fontsize=16)
-            #ax.set_title('$\\langle$$\\epsilon_{reco}$$\\rangle$='+f'{mean_eff:.2f}$\\pm${mean_err:.2f}', fontsize=16)
-        gs.tight_layout(fig)
-        plt.figtext(.5,.95, "Muon reconstruction efficiency" , fontsize=12, ha='center')
-        plt.savefig(
-            os.path.join(self.outdir, f"reco_eff_mu.png")
-        )
-        plt.close()
-        
-    def error_eff(self, x, y):
-        self.cut ((x!=0 ) & (y!=0 ))
-        dx,dy = np.sqrt(x[cut]), np.sqrt(y[cut]) #poisson error
-        new_x, new_y = x[cut], y[cut]
-        err = new_x/new_y * np.sqrt((dx/new_x)**2+(dy/new_y)**2) 
-      
-        mean_err = np.mean(err)
-        return mean_err
-    
-    
-    def plot_angular_resolution(self, az:list, ze:list):
-        
-        DDX, DDY = self.DDXDDY
-        nconfigs = DDX.shape[0]
-       
-        DX_min, DX_max = self.hitmap_process.rangeDXDY[0]
-        DY_min, DY_max = self.hitmap_process.rangeDXDY[1]
-        
-        fig = plt.figure(13, figsize= (16,9))
-        gs = GridSpec(2,nconfigs, left=0.05, right=0.95, wspace=0.25, hspace=0.25)  
-        c = 'blue'
-        for i in range(nconfigs):
-            ax1 = fig.add_subplot(gs[0,i])#, aspect='equal')
-            ax1.set_title(f"Config {i+1}")
-            ax1.grid(False)
-            ax1.set_xlabel('$\\Delta(\\Delta$X) = $\\Delta$X$_{reco}$ - $\\Delta$X$_{prim}$ [mm]', fontsize=16)
-            ax1.set_ylabel('entries', fontsize=16)
-            entries, bins, _ = ax1.hist(DDX[i], bins=100, range=[DX_min, DX_max], color=c)
-            ax2= fig.add_subplot(gs[1,i])#, aspect='equal')
-            ax2.grid(False)
-            ax2.set_xlabel('$\\Delta(\\Delta$Y) = $\\Delta$Y$_{reco}$ - $\\Delta$Y$_{prim}$ [mm]', fontsize=16)
-            ax2.set_ylabel('entries', fontsize=16)
-            entries, bins, _ = ax2.hist(DDY[i], bins=100, range=[DY_min, DY_max], color=c)
-            
-        plt.figtext(.5,.95, "Muon primaries vs RANSAC reconstructed tracks" , fontsize=12, ha='center')
-        plt.savefig(
-            os.path.join(self.outdir, "", f"ecart_pixel_mm_prim_reco.png")
-        )
-        plt.close()
-    
-        dx = np.linspace(DX_min, DX_max, self.hitmap_process.binsDXDY[0])
-        dy = np.linspace(DY_min, DY_max, self.hitmap_process.binsDXDY[1])
-        #convert mm to deg
-        #convert bar to deg
-        fx = [interpolate.interp1d(dx, z) for z in ze ]
-        fy = [interpolate.interp1d(dy, a) for a in az ]
-        ####ANGULAR RESOLUTION
-        fig = plt.figure(13, figsize= (16,9))
-        gs = GridSpec(2, nconfigs, left=0.05, right=0.95, wspace=0.25, hspace=0.25)
-        Ze_max = 0.25 * np.max(ze)
-        Az_max = 0.25 * np.max(az)
-        rangeZe  = (-Ze_max,Ze_max)
-        rangeAz  = (-Az_max,Az_max) 
-        #sns.set_theme(style="darkgrid")
-        for i in range(nconfigs):
-            cutx = (( DX_min<DDX[i] ) & (DDX[i] < DX_max ))
-            cuty = (( DY_min<DDY[i] ) & (DDY[i] < DY_max ))
-            DDX_new = fx[i]( DDX[i][cutx]) # in deg, theta (zenith) resolution
-            DDY_new = fy[i]( DDY[i][cuty]) # in deg, phi (azimuth) resolution
-
-            #Zenith
-            ax1 = fig.add_subplot(gs[0,i])#, aspect='equal')
-            ax1.set_title(f"Config {i+1}")
-            ax1.grid(False)
-            ax1.set_xlabel('$\\Delta$$\\theta$ [$^{\circ}$]', fontsize=16)
-            ax1.set_ylabel('entries', fontsize=16)
-            y, bins, _ = ax1.hist(DDX_new, bins=50, range=rangeZe, color=c)
-            x = np.array([ (bins[i+1]+bins[i])/2 for i in range(len(bins)-1) ])
-            fitrange = ( ( -Ze_max< x) & (x < Ze_max ) ) 
-            new_x = x[fitrange]
-            new_y = y[fitrange]
-            N=len(x)
-            amp = np.max(y)  
-            mean = 0
-            sigma = np.sqrt( sum( y*(x - mean)**2  )  /  ((N-1)/N*sum(y))  )
-            popt,pcov  = curve_fit(gaus,new_x,new_y,p0=[amp,mean,sigma])
-            perr = np.sqrt(np.diag(pcov))
-            ax1.plot(new_x, gaus(new_x,*popt), label='$\\sigma$$_{\\theta}$='+f'{popt[2]:.2f}'+ '$^{\circ}$\n'+f'$\\pm${perr[2]:.2f}'+ '$^{\circ}$') #$\\mu$={popt[1]:.1f}'+ '$^{\circ}$'+'\n
-            ax1.legend(loc='center right', fontsize=16)
-            
-            #Azimuth
-            ax2= fig.add_subplot(gs[1,i])#, aspect='equal')
-            ax2.grid(False)
-            ax2.set_xlabel('$\\Delta$$\\varphi$ [$^{\circ}$]', fontsize=16)
-            ax2.set_ylabel('entries', fontsize=16)
-            y, bins, _ = ax2.hist(DDY_new, bins=50, range=rangeAz, color=c)# range=[-100, 100])
-            x = np.array([ (bins[i+1]+bins[i])/2 for i in range(len(bins)-1) ])
-            fitrange = ( (-Az_max < x) & (x < Az_max ) ) 
-            new_x = x[fitrange]
-            new_y = y[fitrange]
-            N=len(x)
-            amp = np.max(y)  
-            mean = 0
-            sigma = np.sqrt( sum( y*(x - mean)**2  )  /  ((N-1)/N*sum(y))  )
-            popt,pcov  = curve_fit(gaus,new_x,new_y,p0=[amp,mean,sigma])
-            perr = np.sqrt(np.diag(pcov))
-            ax2.plot(new_x, gaus(new_x,*popt), label='$\\sigma$$_{\\varphi}$='+f'{popt[2]:.2f}'+ '$^{\circ}$\n'+f'$\\pm${perr[2]:.2f}'+ '$^{\circ}$')
-            ax2.legend(loc='center right', fontsize=16)
-            
-        plt.figtext(.5,.95, "Muon reconstruction Angular resolution" , fontsize=12, ha='center')
-        plt.savefig( 
-            os.path.join(self.outdir, "", f"angular_resolution.png")
-        )
-        plt.close()
-    
-    
-
+ 
 class AnaCharge:
     """Class to analyze charge deposits in scintillator panels"""
     def __init__(self, inlier_file:RecoData,  outlier_file:RecoData, outdir:str, label:str, evttype:EventType=None):
@@ -661,10 +501,10 @@ class AnaCharge:
         self.outlier_file = outlier_file
         self.df_inlier  = self.inlier_file.df
         self.df_outlier = self.outlier_file.df
-        #self.evttype = evttype.name
-        #if  self.evttype == "GOLD" : 
-        #    self.df_inlier = self.df_inlier.loc[self.df_inlier['gold']==1.]
-        #    self.df_outlier = self.df_outlier.loc[self.df_outlier['gold']==1.]
+        if  evttype is not None: 
+            if evttype.name == "GOLD" : 
+               self.df_inlier = self.df_inlier.loc[self.df_inlier['gold']==1.]
+               self.df_outlier = self.df_outlier.loc[self.df_outlier['gold']==1.]
         self.outdir = outdir 
         self.evtNo_reco = list(self.df_inlier.index)
         self.label = label 
@@ -673,138 +513,170 @@ class AnaCharge:
         self.binsDY = 2*self.panels[0].matrix.nbarsY-1
         self.ADC_XY_inlier  = [] #sum(ADC_X+ADC_Y) 
         self.ADC_XY_outlier = []
-        self.fill_adc_arrays()
+        self.fill_charge_arrays()
         
-    def fill_adc_arrays(self):
-        #pos_panels = [(f"X_{p.position}", f"Y_{p.position}") for p in self.panels]
+    def fill_charge_arrays(self):
         Z = np.sort(list(set(self.df_inlier['Z'])))
         sumADC_XY_in = self.df_inlier['ADC_X'] + self.df_inlier['ADC_Y'] 
-        self.df_inlier = self.df_inlier.assign(sumADC_XY=pd.Series(sumADC_XY_in).values)
+        self.df_inlier = self.df_inlier.assign(ADC_SUM=pd.Series(sumADC_XY_in).values)
         sumADC_XY_out = self.df_outlier['ADC_X'] + self.df_outlier['ADC_Y'] 
-        self.df_outlier = self.df_outlier.assign(sumADC_XY=pd.Series(sumADC_XY_out).values)
+        self.df_outlier = self.df_outlier.assign(ADC_SUM=pd.Series(sumADC_XY_out).values)
         
-        self.ADC_XY_inlier = [ np.array(self.df_inlier.loc[self.df_inlier['Z'] ==z]["sumADC_XY"].values) for z in Z]
-        self.ADC_XY_outlier = [ np.array(self.df_outlier.loc[self.df_outlier['Z'] ==z]["sumADC_XY"].values) for z in Z]
+        self.ADC_XY_inlier = [ np.array(self.df_inlier.loc[self.df_inlier['Z'] ==z]["ADC_SUM"].values) for z in Z]
+        self.ADC_XY_outlier = [ np.array(self.df_outlier.loc[self.df_outlier['Z'] ==z]["ADC_SUM"].values) for z in Z]
+
+
         
     def langau(x, mpv, eta, sigma, amp): return pylandau.langau(x, mpv, eta, sigma, amp, scale_langau=True) 
-            
+    
+    
+    def fit_dQ(self, q:np.ndarray, nbins:int=100, is_scaling:bool=False, input_type:str="DATA"):    
+        fscale= 1 
+        if is_scaling:   fscale = 1e3 ###needed to fit with Landau function from pylandau
+        q = q*fscale
+        xmax_fig = np.mean(q) + 5*np.std(q)
+        xmax_fit = xmax_fig
+        entries, bins = np.histogram(q,  range=(0,  xmax_fit), bins =  nbins)
+        widths = np.diff(bins)
+        bin_centers = np.array([ (bins[i+1]+bins[i])/2 for i in range(len(bins)-1)])
+        N = len(bin_centers)     
+        mean = sum( bin_centers * entries) / sum(entries)#(n*max(nentries))#sum(np.multiply(bin_centers, nentries)) / n
+        sigma = np.sqrt( sum( entries*(bin_centers - mean)**2  )  /  ((N-1)/N*sum(entries))  )
+        rough_max = np.max( bin_centers[bin_centers>0][entries.argmax()] )#bin_centers[np.where(entries==max(entries))] )
+        #fitrange =  ( ( rough_max*0.2 < bin_centers ) & (bin_centers< 3*rough_max ) )
+        fitrange =  ( ( rough_max*0.2 < bin_centers ) & (bin_centers < xmax_fit ) )
+        yerr = np.array([np.sqrt(n) for n in entries[fitrange] ]) 
+        yerr[entries[fitrange]<1] = 1
+        xfit = bin_centers[fitrange]
+        yfit = entries[fitrange]
+        bin_w = np.diff(bin_centers[fitrange] )
+        mpv, eta, amp = int(rough_max), sigma, np.max(entries)
+        print(mpv, eta, sigma, amp)
+    
+        if input_type == "MC" : 
+            values, pcov = curve_fit(pylandau.landau, xfit, yfit,
+                sigma=yerr,
+                absolute_sigma=False,
+                p0=(mpv, eta, amp)
+                # bounds=( (0.1*mpv, 0.1*eta, 0.1*amp ),
+                #         (3*mpv, 3*eta, 3*amp )
+                #         )
+                )
+            errors = np.sqrt(np.diag(pcov))
+            values[0], values[1] =  values[0]/fscale, values[1]/fscale
+            errors[0], errors[1] =  errors[0]/fscale, errors[1]/fscale
+        elif input_type == "DATA" : 
+            values, errors, m = tools.advanced_fit.fit_landau_migrad(
+                                            xfit,
+                                            yfit,
+                                            p0=[mpv, eta, sigma, amp],#
+                                            limit_mpv=(rough_max*0.8,rough_max*1.2), #(10., 100.)
+                                            limit_eta=(0.3*eta,1.5*eta), #(0.8*eta,1.2*eta)
+                                            limit_sigma=(0.3*sigma,1.5*sigma), #(0.8*sigma,1.2*sigma)
+                                            limit_A=(0.8*amp,1.2*amp) #(0.8*amp,1.2*amp)
+                                            ) 
+            values[0], values[1], values[2] =  values[0]/fscale, values[1]/fscale, values[2]/fscale
+            errors[0], errors[1], errors[2] =  errors[0]/fscale, errors[1]/fscale, errors[2]/fscale 
+        else : raise ValueError('Unknown InpuType.')
+     
+        xfit, yfit = xfit/fscale, yfit/fscale
 
-    def plot_adc_panels(self, ADC:dict, nbins:int=100, fcal:dict=None, unc_fcal:dict=None, xlabel:str='dQ [ADC]') : 
+        xyrange = [[np.nanmin(xfit), np.nanmax(xfit)], [np.nanmin(yfit), np.nanmax(yfit)]]
+        return values, errors, xyrange
+
+    def plot_charge_panels(self, charge:dict, nbins:int=100,  fcal:dict=None, unc_fcal:dict=None, xlabel:str='dQ [ADC]', is_scaling :bool=False,input_type: InputType=InputType.DATA) : 
 
         fig, f_axs = plt.subplots(ncols=len(self.panels), nrows=1, figsize=(16,9))
-
-        fontsize = 16#36
-        ticksize = 12#26
-        legendsize = 12#40
         
         if fcal is None: fcal = {p.ID : 1 for p in self.panels}
         
-        for (tag, color, do_fit), adc in ADC.items():
-            dict_par = {} ###fit parameters (value, error) / panel
+        if input_type == 'DATA': lpar_fit = ['MPV', 'eta', 'sigma', 'A']##parameters landauxgaussian distribution
+        elif input_type == 'MC': lpar_fit = ['MPV', 'eta', 'A'] ##parameters landau distribution
+        else : raise ValueError()
+        lmes = ['value', 'error']
+        lpar = lpar_fit
+        lpar.extend(['xmin', 'xmax', 'entries'])
+        mix = pd.Index([pan.ID for pan in self.panels], name="panel_id")
+        cols = pd.MultiIndex.from_tuples([(par, mes) for par in lpar for mes in lmes])
+        df_par = pd.DataFrame(columns=cols,index=mix)
+        
+        
+        for (tag, color, do_fit), charge_panel in charge.items():
             df_entries= pd.DataFrame(index=np.arange(0, nbins)) ###(entries, bin) / panel 
+            df_percentiles = pd.DataFrame(index=np.arange(1, 101), columns=[f"panel_{panel.ID}" for panel in self.panels])
             for col, panel in enumerate(self.panels): 
-               
-                if len(adc[col]) == 0 : continue
+                
+                if len(charge_panel[col]) == 0 : continue
+                
+                q = charge_panel[col]/fcal[panel.ID]
+            
                 ax = f_axs[col]
-                xmax_fig = np.mean(adc[col]) + 5*np.std(adc[col])
+                xmax_fig = np.mean(q) + 5*np.std(q)
                 ax.set_xlim(0, xmax_fig)
-                xmax_fit = xmax_fig
-                entries, bins_adc = np.histogram(adc[col],  range=(0,  xmax_fit), bins =  nbins)
-
-                bins = bins_adc/fcal[panel.ID]
+                ax.set_xlabel(xlabel) 
+                entries, bins = np.histogram(q,  range=(0,  xmax_fig), bins =  nbins)
                 widths = np.diff(bins)
                 
                 ax.bar(bins[:-1], entries, widths,color='None', edgecolor=color, label=f"{tag}")
                 
-                ax.set_xlabel(xlabel, fontsize=fontsize) 
                 
                 if fcal is not None and unc_fcal is not None: 
-                    ax.set_xlabel('dE [MIP fraction]', fontsize=fontsize) 
+                    ####if calibration constante C_ADC/MIPfraction is parsed (measured with 'golden' events)
                     ax.axvspan(1-unc_fcal[panel.ID]/fcal[panel.ID], 1+unc_fcal[panel.ID]/fcal[panel.ID], color='orange', alpha=0.2)
-                    
-                ax.set_ylabel('entries', fontsize=fontsize)
+                    ax.set_xlim(0, xmax_fig)
+                
+
                 ax.ticklabel_format(axis="y", style="sci", scilimits=(0,0))
-                ax.tick_params(axis='both', labelsize=ticksize)
-                #ax.legend(loc='upper right', fontsize=legendsize, title=f"{panel.position[0].name} ID{panel.ID}")
-                ax.legend(loc='upper right', fontsize=legendsize, title=f"{panel.position.loc} ID{panel.ID}")
-                #PYLANDAU FIT
-                
-                if not do_fit : continue 
-                bin_centers = np.array([ (bins[i+1]+bins[i])/2 for i in range(len(bins)-1)])
-            
-                
-                N = len(bin_centers)     
-                mean = sum( bin_centers * entries) / sum(entries)#(n*max(nentries))#sum(np.multiply(bin_centers, nentries)) / n
-                sigma = np.sqrt( sum( entries*(bin_centers - mean)**2  )  /  ((N-1)/N*sum(entries))  )
-                rough_max = np.max( bin_centers[bin_centers>0][entries.argmax()] )#bin_centers[np.where(entries==max(entries))] )
-                #fitrange =  ( ( rough_max*0.2 < bin_centers ) & (bin_centers< 3*rough_max ) )
-                fitrange =  ( ( rough_max*0.2 < bin_centers ) & (bin_centers < xmax_fit ) )
-                yerr = np.array([np.sqrt(n) for n in entries[fitrange] ]) 
-                yerr[entries[fitrange]<1] = 1
-                xfit = bin_centers[fitrange]
-                yfit = entries[fitrange]
-                bin_w = np.diff(bin_centers[fitrange] )
-                #ofile = os.path.join(self.outdir, f"entries_dE_panel_{panel.ID}_{self.label}_{tag}_{self.evttype}.csv")
-                #d_conv = {'entry': entries, 'bin': bin_centers}
-                #df = pd.DataFrame(d_conv) 
-                #df.to_csv(ofile)
-                df_entries.loc[fitrange,f'bin_{panel.ID}'] = xfit
-                df_entries.loc[fitrange,f'entry_{panel.ID}'] = yfit
-                #mpv, eta, amp = int(rough_max), 0.5*sigma, np.max(entries)
-                mpv, eta, amp = int(rough_max), sigma, np.max(entries)
-                print(mpv, eta, sigma, amp)
-                # coeff, pcov = curve_fit(pylandau.landau, xfit, yfit,
-                #                 sigma=yerr,
-                #                 absolute_sigma=False,
-                #                 p0=(mpv, eta, amp))
-                #                 # bounds=(1, 10000) )
-                # perr = np.sqrt(np.diag(pcov))
-       
-                #ax.plot(xfit, pylandau.landau(xfit, *coeff), "-", color=color, label =f'MPV={coeff[0]:.0f}$\\pm${perr[0]:.0f}ADC\n$\\eta$={coeff[1]:.1f}$\\pm${perr[1]:.1f}ADC\nA={coeff[2]:.0f}$\\pm${perr[2]:.0f}') #
-                #f_axs[col].plot(x, pylandau.landau(x, *coef), '-')
-                # Fit the data with numerical exact error estimation
-            # Taking into account correlations
-                
-                x=xfit
-                y=yfit
-                values, errors, m = fit_landau_migrad(
-                                                x,
-                                                y,
-                                                p0=[mpv, eta, sigma, amp],#
-                                                limit_mpv=(rough_max*0.8,rough_max*1.2), #(10., 100.)
-                                                limit_eta=(0.3*eta,1.5*eta), #(0.8*eta,1.2*eta)
-                                                limit_sigma=(0.3*sigma,1.5*sigma), #(0.8*sigma,1.2*sigma)
-                                                limit_A=(0.8*amp,1.2*amp) #(0.8*amp,1.2*amp)
-                                                ) 
-               
-                
-                ## PLOT and SAVE fit result, and histogram entries
-                entries = pylandau.langau(x, *values)
-                yerr = np.sqrt(entries)
-                ax.plot(x,y)
-                ax.errorbar(x, y, yerr, fmt='.', color='r')
-                param = ['MPV', 'eta', 'sigma', 'A']
-                sym_err = [np.max(np.abs(e)) for e in errors] 
-                for par, val, err in zip(param, values, sym_err) : dict_par[(str(panel.ID), par)]= [f'{val:.5f}', f'{err:.5f}']
-                dict_par[(str(panel.ID), "xmin")]= (np.min(xfit),bin_w[0])
-                dict_par[(str(panel.ID), "xmax")]= (np.max(xfit),bin_w[-1])
-                #dict_par['entries'] = (int(np.sum(entries)), 0)
-                param = ['MPV', '$\\eta$', '$\\sigma$', 'A']
+                ax.tick_params(axis='both')
+                ax.legend(loc='upper right', title=f"{panel.position.loc} ID{panel.ID}")
+
+                bin_centers = np.array([ (bins[i+1]+bins[i])/2 for i in range(len(bins)-1)])    
+                bin_w = np.diff(bin_centers)
+
+                # df_entries.loc[fitrange,f'bin_{panel.ID}'] = xfit / fscale
+                # df_entries.loc[fitrange,f'entry_{panel.ID}'] = yfit
+                for per in range(1,101) : df_percentiles.loc[per][f"panel_{panel.ID}"] = np.around(np.percentile(q,per),3)
+
+                if not do_fit : continue
+                ## FIT plot and params              
+                values, errors, xyrange = self.fit_dQ(q, nbins=nbins, is_scaling=is_scaling, input_type=input_type)
+                [xmin, xmax], [ymin, ymax] = xyrange
+                sym_err = [np.max(np.abs(e)) for e in errors]
+         
+                for par, val, err in zip(lpar_fit, values, sym_err):
+                    df_par.loc[panel.ID][par] = [np.around(val,3),np.around(err,3)] 
+         
+                df_par.loc[panel.ID]['xmin'] = [np.around(xmin,3),np.around(bin_w[0],3)] 
+                df_par.loc[panel.ID]['xmax'] = [np.around(xmax,3),np.around(bin_w[-1],3)]  
+                df_par.loc[panel.ID]['entries'] = [int(np.sum(entries)), 0]
+                print("df_par =", df_par)
+                str_par_fit = ['MPV', '$\\eta$', '$\\sigma$', 'A']
+                if input_type == 'MC':str_par_fit = ['MPV', '$\\eta$', 'A']
+
                 label = ""#"$\\bf{"+ name +"}$\n"
-                label += ' '.join('{}={:0.1f}$\\pm${:0.1f} ADC\n'.format(p, value, error) for p, value, error in zip(param[:-1], values[:-1], sym_err[:-1]  )   )
-                ax.plot(x, pylandau.langau(x, *values), '-', label=label+'{}={:0.1f}$\\pm${:0.1f}'.format(param[-1], values[-1],sym_err[-1]), color=color )
-            
-                ax.legend(loc='best', fontsize=legendsize, title=f"Panel {panel.ID}")
+                label += ' '.join('{}={:0.1f}$\\pm${:0.1f} ADC\n'.format(p, value, error) for p, value, error in zip(str_par_fit[:-1], values[:-1], sym_err [:-1]  )   )
+                
+                ax.legend(loc='best', title=f"Panel {panel.ID}")
+                amp = df_par.loc[panel.ID]['A']['value']
                 ax.set_ylim(0, 1.2*amp)
             
-            xmax_fig = xmax_fit
-            #ax.set_xlim(0, xmax_fig)
-            
-            ofile_ent = os.path.join(self.outdir, f"entries_dQ_{tag}.csv")
-            df_entries.to_csv( ofile_ent, sep='\t')
-            ofile_par = os.path.join(self.outdir, f'fit_dQ_{self.label}_{tag}.csv')
-            df_par = pd.DataFrame.from_dict(dict_par, columns=['value', 'error'],orient='index')
-            df_par.to_csv( ofile_par, sep='\t')
+                xfit = np.linspace(xmin, xmax, 100)
+                if input_type == "MC" : 
+                    ax.plot(xfit, pylandau.landau(xfit, *values), '-', label=label+'{}={:0.1f}$\\pm${:0.1f}'.format(str_par_fit[-1], values[-1],sym_err[-1]), color=color )
+                elif input_type == "DATA": 
+                    ax.plot(xfit, pylandau.langau(xfit, *values), '-', label=label+'{}={:0.1f}$\\pm${:0.1f}'.format(str_par_fit[-1], values[-1],sym_err[-1]), color=color )
+                else : 
+                    raise ValueError('Unknown InpuType.')
+                        
+        
+            #ofile_ent = os.path.join(self.outdir, f"entries_dQ_{tag}.csv")
+            ofile_perc = os.path.join(self.outdir, f"percentiles_dQ_{tag}.csv")
+            #df_entries.to_csv( ofile_ent, sep='\t')
+            df_percentiles.to_csv( ofile_perc, sep='\t')
+            if do_fit : 
+                ofile_par = os.path.join(self.outdir, f'fit_dQ_{tag}.csv')
+                #df_par = pd.DataFrame.from_dict(dict_par, columns=['value', 'error'],orient='index')
+                df_par.to_csv( ofile_par, sep='\t')
             
         fig.tight_layout()
         plt.savefig(
@@ -813,26 +685,21 @@ class AnaCharge:
         plt.close()
 
 
-    def scatter_plot_dQ(self, dQx:dict, dQy:dict, rangex:tuple=None, rangey:tuple=None, nbins:int=100) : 
+    def scatter_plot_dQ(self, fig, gs, dQx:dict, dQy:dict, rangex:tuple=None, rangey:tuple=None, nbins:int=100) : 
         for i, (((tagx, colorx, do_fitx), valx), ((tagy, colory, do_fity),valy))  in enumerate( zip(dQx.items(), dQy.items() )) :
-          
-            fig = plt.figure(0, figsize= (16,9))
-            gs = fig.add_gridspec(2, 2,  width_ratios=(7, 2), height_ratios=(2, 7),
-                            left=0.1, right=0.9, bottom=0.1, top=0.9,
-                            wspace=0.05, hspace=0.05)
 
             ax = fig.add_subplot(gs[1, 0])
             ax_histx = fig.add_subplot(gs[0, 0], sharex=ax)
             #if fcal[panel.ID]!=1 : 
-                #ax.set_xlabel('dE [MIP fraction]', fontsize=fontsize) 
-            atx = AnchoredText('dEx',
+                #ax.set_xlabel('dQ [MIP fraction]', fontsize=fontsize) 
+            atx = AnchoredText('dQ_front',
                         prop=dict(size=14), frameon=True,
                         loc='upper right',
                         )
             atx.patch.set_boxstyle("round,pad=0.,rounding_size=0.2")
             ax_histx.add_artist(atx) 
             ax_histy = fig.add_subplot(gs[1, 1], sharey=ax)
-            aty = AnchoredText('dEy',
+            aty = AnchoredText('dQ_rear',
                         prop=dict(size=14), frameon=True,
                         loc='upper right',
                         )
@@ -865,25 +732,35 @@ class AnaCharge:
     
             
             if rangex is None and rangey is None : 
-                rangex, rangey= (-1,np.max(valx)), (-1,np.max(valy))
-
-  
-            entries_x, bins_x, _ = ax_histx.hist(valx, bins=nbins, range =rangex, color ='lightgreen', alpha=1., label='X', edgecolor='none')
-            entries_y, bins_y, _ = ax_histy.hist(valy, bins=nbins, range =rangey, orientation='horizontal', color = 'lightgreen', alpha=1., label='Y', edgecolor='none')
-            bins_center_x = np.array([ (bins_x[i+1]+bins_x[i])/2 for i in range(len(bins_x)-1)])
-            bins_center_y = np.array([ (bins_y[i+1]+bins_y[i])/2 for i in range(len(bins_y)-1)])
+                xmax_2d = np.mean(valx) + 5*np.std(valx)
+                ymax_2d = np.mean(valy) + 5*np.std(valy)
+                rangex, rangey= (0,xmax_2d), (0,ymax_2d)
+               
+            #print("rangex, rangey= ",rangex, rangey)
+            entries_x, bins_x = np.histogram(valx,  range=rangex, bins =  nbins)#ax_histx.hist(valx, bins=nbins, range =rangex, color ='lightgreen', alpha=1., label='X', edgecolor='none')
+            widths_x = np.diff(bins_x)
+            ax_histx.bar(bins_x[:-1], entries_x, widths_x,color='None', edgecolor='lightgreen', label=f"X")
+            ax_histx.set_xlim(rangex)
             
-            gamma = 0.3
-            ax.hist2d(valx, valy, bins=nbins, range=None, norm=mcolors.PowerNorm(gamma), cmap='viridis') #mcolors.LogNorm(vmin=1, vmax=max_)
-            plt.figtext(.5,.95, self.label, fontsize=12, ha='center')
-            plt.savefig(
-                os.path.join(self.outdir, "",  "scatter_ADC_.png")
-            )
+            entries_y, bins_y = np.histogram(valy,  range=rangey, bins =  nbins)
+            widths_y = np.diff(bins_y)
+            ax_histy.barh(bins_y[:-1], entries_y, widths_y,color='None', edgecolor='lightgreen', label=f"Y")
+            ax_histy.set_ylim(rangey)
+            #entries_y, bins_y, _ = ax_histy.hist(valy, bins=nbins, range =rangey, orientation='horizontal', color = 'lightgreen', alpha=1., label='Y', edgecolor='none')
+            #bins_center_x = np.array([ (bins_x[i+1]+bins_x[i])/2 for i in range(len(bins_x)-1)])
+            #bins_center_y = np.array([ (bins_y[i+1]+bins_y[i])/2 for i in range(len(bins_y)-1)])
             
-            plt.close()
+            h, xedges, yedges =  np.histogram2d(valx, valy, bins=nbins, range=[rangex, rangey])#, norm=mcolors.PowerNorm(gamma), cmap='jet') #mcolors.LogNorm(vmin=1, vmax=max_)
+            # gamma = 0.3
+            # h, xedges, yedges, im = ax.hist2d(valx, valy, bins=nbins, range=[rangex, rangey], norm=mcolors.PowerNorm(gamma), cmap='jet') #mcolors.LogNorm(vmin=1, vmax=max_)
+            #im = ax.imshow(, interpolation='none', origin='lower', cmap = 'jet')
+            Z = np.ma.masked_where(h < 1, h).T
+            xc, yc = xedges, yedges#(xedges[1:] + xedges[:-1])/2, (yedges[1:] + yedges[:-1])/2
+            X, Y = np.meshgrid(xc, yc)
+            im = ax.pcolormesh(X,  Y, Z, shading='auto', cmap='jet')#,norm=LogNorm(vmin=vmin, vmax=vmax) )
+        return ax, h, xedges, yedges
 
 
 
-    
 if __name__ == '__main__':
     print("ok")

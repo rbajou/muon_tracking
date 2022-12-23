@@ -136,7 +136,7 @@ class Hit:
     barNo : int
     adc : int
     panelID : int = field(default=0)
-
+    
 
 @dataclass 
 class Impact:
@@ -269,12 +269,15 @@ class Event:
     def xyz_bar(self):
         """
         Combinations of 1D hit couples to retrieve XY coordinate for each impact
+
         :return: type: numpy array of XYZ points.
         """
         barNo = []
         adc = []
         for _, imp in self.impacts.items():  # loop on impacts (=touched panels)
             z = imp.panelID
+            #coord.extend([hit.channelNo for hit in imp.hits])
+            #adc = [hit.adc for hit in imp.hits]
             l_hits= [ hit for hit in imp.hits if type(hit.barNo) == str and hit.adc != 0]
             l_comb = combinations(l_hits, 2)
             for hit1, hit2 in l_comb : 
@@ -312,6 +315,9 @@ class Event:
         if len(self.xyz) != 0: self.npts = len(np.unique(self.xyz, axis=0))
    
     def get_time_of_flight(self):
+        # imp = list(self.impacts.values())
+        # dt = float(imp[-1].timestamp_ns) - float(imp[0].timestamp_ns)
+        # self.tof= dt#in 10ns
         l_impacts= list(self.impacts.values())
         l_z = [imp.zpos for imp in l_impacts]
         imp_front, imp_rear =  l_impacts[np.argmin(l_z)], l_impacts[np.argmax(l_z)]
@@ -359,8 +365,6 @@ class ReconstructedParticle(Event):
         self.is_reco = True
         if is_xyz_empty: 
             self.is_reco = False
-            # raise Exception("xyz is empty.")
-
         self.model_robust = Model #LineModelND
         self.inliers = Inliers #list()
         self.outliers = Inliers
@@ -396,6 +400,8 @@ class ReconstructedParticle(Event):
         if self.is_reco is False:
             return None
         try:
+        #print(f"evt{self.event.ID}")
+        #wi = np.ones(shape=self._xyz.shape)
             self.model_robust, self.inliers = ransac(
                 self._xyz,
                 LineModelND,
@@ -405,7 +411,8 @@ class ReconstructedParticle(Event):
                 #stop_probability=ransac_params['stop_probability'],
                 #stop_n_inliers=stop_n_inliers 
             )
-  
+        
+            
         except:
             ValueError("ERROR",self.model_robust)
 
@@ -452,10 +459,6 @@ class ReconstructedParticle(Event):
                 else: raise ValueError
             
             else: pass 
-
-        # if len( set(np.diff(np.sort(list(set(xyz_inliers[:,-1]))))) ) > 1: 
-        #     #if non-consecutive panel impact inliers
-        #     return False
         
         self.goodness_of_fit(xyz)
         return True
@@ -468,34 +471,11 @@ class ReconstructedParticle(Event):
         self.ndof = len(self.residuals) - (len(self.model_robust.params[1])-1)
         #rss = np.sum(np.power(self.residuals, 2))
         #self.rchi2 = self.chi2/self.ndof    
-        # if 0.5<self.rchi2 and self.rchi2 <1.5:
-        #     print("evtID=",self.event.ID)
-        #     #print(self.residuals)
-        #     #print(len(self._xyz), len(self.residuals), len(self.model_robust.params[1]))
-        #     print(f"rchi2={self.rchi2:.2f}")
         self.quadsumres = np.around(np.sum(np.power(self.residuals,2)),3)
         self.gof = 0.#np.around(self.rchi2, 3)
         
 
 
-@dataclass
-class EmissionSurface:
-    """
-    For plotting simulation event
-    """
-    shape : str
-    size : float #in mm
-    position : np.ndarray #array-like, in meter
-    def plot3D(self, ax):
-        s = self.size
-        X  = np.arange(self.position[0], self.position[0]+s, 10)
-        Y = np.arange(self.position[1], self.position[1]+s, 10)
-        X, Y = np.meshgrid(X, Y)
-        if self.shape == "plane" : Z = np.ones(shape=X.shape)*(self.position[2])#+self.distance
-        else: return None
-        ax.plot_surface(X,Y,Z, alpha=0.2, color='blue' )
-        return ax
-        
     
 class Processing: 
     def __init__(self, data:Data, outdir:str):
@@ -510,23 +490,16 @@ class Processing:
         self.zpos = { i : p.position.z  for i,p in self.panels.items()}
         self.zcoord = np.array(list(self.zpos.values()))
         if self.input_type == InputType.DATA or self.input_type == InputType.MC:
-            colnames_reco = ['evtID', 'gold', 'timestamp_s', 'timestamp_ns','time-of-flight','npts','nimp', 'quadsumres' ]  
-            colnames_reco.extend(["X_"+ str(p.position.loc) for _,p  in self.panels.items()] )
-            colnames_reco.extend(["Y_"+ str(p.position.loc) for _,p  in self.panels.items()] )
-            colnames_reco.extend(['ninl', 'noutl'])
-            self.colnames_inlier = ['evtID', 'gold', 'X', 'Y', 'Z', 'ADC_X', 'ADC_Y']  
-            self.raw_signal_file = os.path.join(self.outdir, f"out_{self.data.label}_raw.csv.gz")
-            self.sel_signal_file = os.path.join(self.outdir, f"out_{self.data.label}_selection.json.gz")
+            self.col_reco  = ['evtID', 'gold', 'timestamp_s', 'timestamp_ns','time-of-flight','npts','nimp', 'quadsumres' ]  
+            self.col_coord = ["X_"+ str(p.position.loc) for _,p  in self.panels.items()] 
+            self.col_coord.extend(["Y_"+ str(p.position.loc) for _,p  in self.panels.items()] )
+            self.col_reco.extend(self.col_coord)
+            self.col_reco.extend(['ninl', 'noutl'])
             npanels= len(self.tel.panels)
             self.sel_signal = {f'{npanels-1}p':[], f'{npanels}p':[]}
-            self.df_reco = pd.DataFrame(columns = colnames_reco)
-            self.df_inlier = pd.DataFrame(columns = self.colnames_inlier)
-            self.df_outlier = pd.DataFrame(columns = self.colnames_inlier)
-        elif self.input_type == InputType.PRIMARY :
-            colnames_prim = ['evtID']
-            colnames_prim.extend(["X_"+ str(p.position.loc) for _,p  in self.panels.items()] )
-            colnames_prim.extend(["Y_"+ str(p.position.loc) for _,p  in self.panels.items()] )
-            self.df_prim = pd.DataFrame(columns = colnames_prim)
+            self.df_reco = pd.DataFrame(columns = self.col_reco)
+            self.col_inlier = ['evtID', 'timestamp_s', 'timestamp_ns', 'inlier', 'gold', 'X', 'Y', 'Z', 'ADC_X', 'ADC_Y']
+            self.df_inlier = pd.DataFrame(columns = self.col_inlier)
         else: raise Exception("Unknown 'InputType'")
         
             
@@ -534,17 +507,10 @@ class Processing:
         """Save dataframes in .csv files"""
         l = self.data.label
         if self.input_type == InputType.DATA or self.input_type == InputType.MC:
-            outfile_reco = os.path.join(self.outdir, 'out_'+l+'_reco.csv.gz')
-            outfile_inlier = os.path.join(self.outdir, 'out_'+l+'_inlier.csv.gz')
-            outfile_outlier = os.path.join(self.outdir, 'out_'+l+'_outlier.csv.gz')
+            outfile_reco = os.path.join(self.outdir, 'reco.csv.gz')
+            outfile_inlier = os.path.join(self.outdir, 'inlier.csv.gz')
             self.df_reco.to_csv(outfile_reco, compression='gzip',index=False, sep='\t')
-            self.df_inlier.to_csv(outfile_inlier, compression='gzip', index=False, sep='\t')
-            self.df_outlier.to_csv(outfile_outlier, compression='gzip', index=False, sep='\t')
-        elif self.input_type == InputType.PRIMARY :
-            outfile_prim = os.path.join(self.outdir, 'out_'+l+'_prim.csv')
-            self.df_prim.to_csv(outfile_prim, index=False, sep='\t')
-            
-            
+            self.df_inlier.to_csv(outfile_inlier, compression='gzip', sep='\t')
         else: raise Exception("Unknown 'InputType'")
     
     def reinit_evt(self, old_evt:Event, impact_pmt:ImpactPM) -> Event:
@@ -558,14 +524,15 @@ class Processing:
     
     
     def filter(self, evt:Event)->bool: #evd:eventdisplay.RawEvtDisplay=None
+        '''
+        Here you can add filters to event before reconstructing the trajectory
+        '''
         
         iscut= False             
         tag = ""
         
         npanels = len(self.panels)
-        
-    
-        
+
         if len(evt.xyz) ==0 : 
             iscut= True
             tag = 'xyz'
@@ -585,12 +552,7 @@ class Processing:
             iscut=True
             tag = "multiplicity"
             return iscut, tag   
-        
-        consecutive_impacts = True
-        if not consecutive_impacts : 
-            iscut = True
-            tag = "consecutive"
-            return iscut, tag   
+          
         nhits = sum([len(i.hits) for _,i in evt.impacts.items()])
         ####is evt gold ?
         if ntouched_panels == npanels and nhits == 2*npanels : 
@@ -670,14 +632,12 @@ class Processing:
                     l_imp=list(impm.impacts.values())
                     raise ValueError(f"{file}\n{evt.ID}\nError during 'evt.get_time_of_flight()'\nl_impacts{l_imp}\nl_z={[imp.zpos for imp in l_imp]}")            
 
-                '''
-                if iscut and tag=="multiplicity": 
-                    ###display raw event 
-                    print(iscut, tag)
-                    evd = eventdisplay.RawEvtDisplay(telescope=self.tel, label="", max_nevt=3)
-                    evd.addEvt(evt=evt, color='red')
-                    evd.show()
-                '''
+                # if iscut and tag=="multiplicity": 
+                #     print(iscut, tag)
+                #     evd = eventdisplay.RawEvtDisplay(telescope=self.tel, label="", max_nevt=3)
+                #     evd.addEvt(evt=evt, color='red')
+                #     evd.show()
+                
                 
                 reco = ReconstructedParticle(evt)
                 reco.ransac_reco(residual_threshold=residual_threshold, 
@@ -699,7 +659,6 @@ class Processing:
                         X, Y, _ = reco_XYZ_inter.T
                     else : 
                         xyz_inliers = evt.xyz[reco.inliers]
-                        #ADC_inliers = np.array([evt.adc[i,:] for i in np.where(reco.inliers == True)])[0,:,:]
                         xyz_inliers_sort = xyz_inliers[xyz_inliers[:,-1].argsort()]
                         z_touched_panels = set(xyz_inliers_sort[:,2])
                         id_nearest = np.array([np.argmin(np.array([ np.linalg.norm(xyz-reco_XYZ_inter[reco_XYZ_inter[:,2]==z]) for xyz in xyz_inliers_sort ]) ) if z in z_touched_panels else None  for z in self.zcoord ])
@@ -707,7 +666,7 @@ class Processing:
                         X, Y, _ = close_XYZ.T
                         X[X==0.], Y[Y==0.] = reco_XYZ_inter[np.where(X==0)[0], 0], reco_XYZ_inter[np.where(Y==0)[0], 1]
                 
-                    line =  np.concatenate(([evt.ID, evt.gold, evt.timestamp_s, evt.timestamp_ns, evt.tof, evt.npts, len(evt.impacts), reco.quadsumres], X, Y, [nin, nout]), axis=0)
+                    line =  np.concatenate(([evt.ID, evt.gold, evt.timestamp_s, evt.timestamp_ns, evt.tof, evt.npts, ntouched_panels, reco.quadsumres], X, Y, [nin, nout]), axis=0)
                     out_matrix[i, :] = line
                     self.nreco[f'{ntouched_panels}p']+=1     
                     self.process_inlier(reco)
@@ -715,14 +674,21 @@ class Processing:
                 evt  = self.reinit_evt(old_evt=evt, impact_pmt=impm)
                 last_evtID = evt.ID
                 if i != len(lines)-1: self.nevt_tot += 1                
-                #tools.print_progress(i+1, nlines, prefix = 'Processing events:', suffix = 'Complete')  
             
             out_matrix =  out_matrix[~np.all( (out_matrix == 0.), axis=1)]
             self.df_reco  = self.df_reco.append(pd.DataFrame(out_matrix, columns=headers))
-            for name in list(self.df_reco.columns):
-                self.df_reco[name] = np.ndarray.astype(self.df_reco[name].values, dtype=int)
-
-
+        
+         ####format columns 
+        for col in list(set(self.df_reco.columns) - set(self.col_coord)):
+            self.df_reco[col] = np.ndarray.astype(self.df_reco[col].values, dtype=int)
+        for col in self.col_coord:
+            self.df_reco[col] = np.ndarray.astype(self.df_reco[col].values, dtype=float)    
+        for col in  self.col_inlier :
+            dtype=int
+            if col == 'ADC_X' or col =='ADC_Y':    dtype=float
+            self.df_inlier[col] = np.ndarray.astype(self.df_inlier[col].values, dtype=dtype)
+    
+        self.df_inlier = self.df_inlier.set_index(['evtID', 'timestamp_s', 'timestamp_ns'])
 
         nreco_tot = sum([val for _, val in self.nreco.items()])
         sout0 = f"RANSAC output:\n(nreco/nevt)_tot = {nreco_tot}/{self.nevt_tot} = {nreco_tot/self.nevt_tot:.2f}\n"
@@ -732,160 +698,36 @@ class Processing:
         snoutl = "".join([f"<f_outliers>_{key} = {np.mean(np.divide(noutliers[key],npts[key])):.2f} \n" for key in list( nsel.keys() ) if nsel[key] != 0  ] )
         sfoutl = "".join([f"<noutliers>_{key} = {np.mean(noutliers[key]):.2f} \n" for key in list( nsel.keys() ) if nsel[key] != 0  ] )
         logging.info(sout0+sout1+sninl+sfinl+snoutl+sfoutl)
-        print(sout0+sout1+sninl+sfinl+snoutl+sfoutl)
+        # print(sout0+sout1+sninl+sfinl+snoutl+sfoutl)
         print(f"ngold = {self.ngold}")
         nsel, self.nreco, self.nevt_tot = {f'{npanels-1}p':0, f'{npanels}p':0}, {f'{npanels-1}p':0, f'{npanels}p':0}, 0
         
     
             
     def process_inlier(self, reco:ReconstructedParticle):
-        """Fill RANSAC inliers and outliers dataframes"""
-        
+        """Fill RANSAC inlier dataframe"""
         evt = reco.event
+        for i in range(len(reco.inliers)):
+            xyz, adc = evt.xyz[i,:], evt.adc[i,:]
+            is_inl = reco.inliers[i]
+            timestamp_s, timestamp_ns = evt.impacts[adc[2]].timestamp_s, evt.impacts[adc[2]].timestamp_ns
+            df_tmp = pd.DataFrame(np.array([ [int(evt.ID), int(timestamp_s), int(timestamp_ns), int(is_inl), int(evt.gold), xyz[0], xyz[1], xyz[2], adc[0], adc[1]] ]), columns=self.col_inlier)
+            self.df_inlier  = self.df_inlier.append(df_tmp)
         
-        inl = (reco.inliers == True)
-        _, idx = np.unique(evt.xyz[inl], axis=0, return_index=True) #np.array([evt.xyz[i,:] for i in np.where(reco.inliers == True)])[0,:,:]
-        XYZ_inliers = evt.xyz[inl][np.sort(idx)]
-        _,idx = np.unique(evt.adc[inl], axis=0, return_index=True) #np.array([evt.adc[i,:] for i in np.where(reco.inliers == True)])[0,:,:]
-        ADC_inliers = evt.adc[inl][np.sort(idx)]
-        for xyz_i, adc_i in zip(XYZ_inliers, ADC_inliers):
-            df_i = pd.DataFrame(np.array([ [evt.ID, evt.gold, xyz_i[0], xyz_i[1], xyz_i[2], adc_i[0], adc_i[1]] ]), index=[evt.ID], columns=self.colnames_inlier)
-            self.df_inlier = self.df_inlier.append(df_i)
         
-        is_outliers = np.any(reco.outliers == True)
-        if is_outliers :
-            outl = (reco.outliers == True)
-            _,idx  = np.unique(evt.xyz[outl], axis=0, return_index=True)
-            XYZ_outliers = evt.xyz[outl][np.sort(idx)]
-            _,idx  = np.unique(evt.xyz[outl], axis=0, return_index=True)
-            ADC_outliers = evt.adc[outl][np.sort(idx)]
-            for xyz_o, adc_o  in zip(XYZ_outliers, ADC_outliers):
-                df_o = pd.DataFrame(np.array([ [evt.ID, evt.gold, xyz_o[0], xyz_o[1], xyz_o[2], adc_o[0], adc_o[1]] ]), index=[evt.ID], columns=self.colnames_inlier)
-                self.df_outlier = self.df_outlier.append(df_o)  
-      
-        for name in list(self.df_inlier.columns):
-            if name == 'ADC_X' or name =='ADC_Y': 
-                self.df_inlier[name]  = np.ndarray.astype(self.df_inlier[name].values, dtype=float)
-                if is_outliers: self.df_outlier[name] = np.ndarray.astype(self.df_outlier[name].values, dtype=float)
-            else:
-                self.df_inlier[name]  = np.ndarray.astype(self.df_inlier[name].values, dtype=int)
-                if is_outliers: self.df_outlier[name] = np.ndarray.astype(self.df_outlier[name].values, dtype=int)
-        
-    '''
-    def check_straightness(self, X,Y, threshold)->bool:
-        X_nz = np.copy(X[X!=0])
-        Y_nz = np.copy(Y[Y!=0])
-        DX = -np.diff(X_nz)
-        DY = -np.diff(Y_nz)
-        DDX = abs(np.diff(DX))
-        DDY = abs(np.diff(DY))
-        iscut_sl = np.array([ ( ( ddx <= threshold)  &  (ddy <= threshold) ) for ddx, ddy in zip(DDX, DDY)])                        
-        # print(f'X, Y = {X},{Y}')
-        # print(f'DX, DY = {DX}, {DY}' )
-        # print(f'DDX, DDY = {DDX}, {DDY}' )
-        if len(DDX)==len(DDY)==len(iscut_sl[iscut_sl==True])==1: return True#3touchedpanels 
-        elif len(DDX)==len(DDY)==len(iscut_sl[iscut_sl==True])==2: return True#4touchedpanels 
-        else : return False
-
-        
-                    
-    def old_process(self):
-        colnames_reco = ['ID', 'gold', 'timestamp_s', 'timestamp_ns','time-of-flight','npts']  
-        colnames_reco.extend(["X_"+ str(p.position.loc) for _, p  in self.panels.items()] )
-        colnames_reco.extend(["Y_"+ str(p.position.loc) for _, p  in self.panels.items()] )
-
-        self.df_reco = pd.DataFrame(columns = colnames_reco,dtype=int)
-        data = self.data
-        nfiles =len(data.dataset)
-        nPM = len(self.tel.PMTs)
-        minPlan = np.min([pm.ID for pm in self.tel.PMTs])
-        npanels= len(self.panels)
-        l_id_panel = list(self.panels.keys())
-        last_evtID = 0
-        headers= list(self.df_reco.keys())
-        barwidths = { i :  float(p.matrix.scintillator.width) for i, p  in self.panels.items() }
-        nsel= {f'{npanels-1}p':0, f'{npanels}p':0}
-        ngold = 0
-        for n, file in enumerate(data.dataset):
-            
-            lines= data.readfile(file)
-            nlines = len(lines)
-            #1st impact
-            impm = ImpactPM(line=lines[0])
-            #create pmt impact 
-            pmt = self.PMTs[impm.pmID]
-            channelmap = pmt.channelmap
-            #create panel impacts
-            impm.fill_panel_impacts(channelmap, self.zpos, nPM, minPlan) 
-            evt = Event(ID = impm.evtID)
-            self.nevt_tot += 1
-            #Add impacts (touched panels) to evt
-            for pid, imp in impm.impacts.items() : evt.impacts[pid] = imp
-            evt.timestamp_s, evt.timestamp_ns= impm.timestamp_s, impm.timestamp_ns
-            last_evtID = evt.ID
-            out_matrix = np.zeros(shape=(nlines, len(headers)),  dtype=int)
-            for i, l in enumerate(lines[1:]) :
-                #if i>10:break
-                impm = ImpactPM(line=l)
-                pmt = self.PMTs[impm.pmID]
-                channelmap = pmt.channelmap
-                impm.fill_panel_impacts(channelmap, self.zpos, nPM, minPlan)
-                
-                if impm.evtID ==last_evtID: 
-                    for pid, imp in impm.impacts.items() : evt.impacts[pid] = imp
-                    #print(f"--->EVT{evt.ID}"  )
-                    if i == len(lines)-1: pass #last line of file
-                    else: continue
-
-                
-                #if new evtID, retrieve the last evtID and reconstruct it 
-                #get coordinates 
-                evt.get_xyz(in_mm=True, width=barwidths, zpos=self.zpos)
-            
-                iscut = self.filter(evt)
-                
-                if not iscut:
-                    ####Get number of 3 and 4panels events
-                    ntouched_panels = len(list(set(evt.xyz[:,2]))) 
-                    nsel[f'{ntouched_panels}p'] += 1 
-                    #nhits = sum([len(i.hits) for _,i in evt.impacts.items()])
-                    df_tmp = pd.DataFrame(np.concatenate((evt.xyz, evt.adc), axis=-1), columns=['x', 'y', 'z', 'adc_x', 'adc_y', 'id_panel'], dtype=int )
-                    sumADC_XY= df_tmp['adc_x'] + df_tmp['adc_y'] 
-                    df_tmp = df_tmp.assign(sumadc=pd.Series(sumADC_XY).values)
-                    #find the indexes of max(ADC_X+ADC_Y) on each panel, if no point found on panel fill None
-                    id_maxADC = [ np.max(df_tmp.loc[df_tmp['id_panel']==z]['sumadc'].index) if z in list(set(df_tmp.id_panel)) else None for z in  l_id_panel ]                                 
-                    #barwidth = 50 #mm
-                    XY = np.array([np.array( [ df_tmp.loc[id_pt].x, df_tmp.loc[id_pt].y ] ) if id_pt is not None else np.zeros(2) for id_pt in id_maxADC])
-                    #HERE CHECK STRAIGHTNESS : 
-                    threshold = np.min(list(barwidths.values()))
-                    straightness = self.check_straightness(XY[:, 0], XY[:, 1], threshold)
-                    if straightness is False: 
-                        pass
-                    else: 
-                        self.nreco[f'{ntouched_panels}p'] +=1
-                        line =  np.concatenate(([evt.ID, evt.gold, evt.timestamp_s, evt.timestamp_ns, evt.tof, evt.npts], XY[:, 0], XY[:, 1]), axis=0)
-                        out_matrix[i, :] = line
-
-                        
-                evt  = self.reinit_evt(old_evt=evt, impact_pmt=impm)
-                last_evtID = evt.ID
-                if i != len(lines)-1: self.nevt_tot += 1
-        
-            out_matrix =  out_matrix[~np.all( (out_matrix == 0.), axis=1)]
-            self.df_reco  = self.df_reco.append(pd.DataFrame(out_matrix, columns=headers, dtype=int))
-            #print(self.df_reco.head())
-            #tools.print_progress(n+1, nfiles, prefix = 'Processing file(s):', suffix = 'Complete')   
-        nreco_tot = sum([val for _, val in self.nreco.items()])
-        sout0 = f"Former straigthness check processing output:\n(nreco/nevt)_tot={nreco_tot}/{self.nevt_tot}={nreco_tot/self.nevt_tot:.2f}\n"
-        sout1 = "".join([f"(nreco/nselect)_{key} = {self.nreco[key]}/{nsel[key]} = {self.nreco[key]/nsel[key] :.2f}\n" for key in list( nsel.keys() ) if nsel[key] != 0  ] )
-        logging.info(sout0+sout1)
-        print(sout0+sout1)
-        self.nreco,self.nevt_tot =  {f'{npanels-1}p':0, f'{npanels}p':0}, 0
-   
-    '''
    
 
 if __name__ == '__main__':
-    pass
     
-   
+    
+    pass
+
+
+    
+    
+
+  
+    
+    
+  
+ 

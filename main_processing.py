@@ -38,13 +38,13 @@ parser.add_argument('--fit_intersections', '-intersect', default=False, help='if
 parser.add_argument('--info', '-info', default=None, help='Additional info',type=str)
 args=parser.parse_args()
 tel = args.telescope
-print(f"telescope={tel}")
+print(f"telescope : {tel}")
 inData = args.input_data
 if len(args.input_data)==1 : 
     inData = f'{args.input_data[0]}'    
     ####In case we input a .list file containing rawdata file paths
     if Path(inData).is_file() & inData.endswith(".list"): 
-        print("ok")
+        print("Input is .list file")
         listfiles = []
         with open(inData, "r") as f: 
             for line in f.readlines():
@@ -57,23 +57,21 @@ elif args.input_type == 'MC': input_type=InputType.MC
 else: raise argparse.ArgumentTypeError("--input_type should be 'DATA' or 'MC'.")
 
 label = args.label
-print(f"Input data = {inData}")
+print(f"Input data : {inData}")
 outDir = os.path.join(args.out_dir, '' )    
 Path(outDir).mkdir(parents=True, exist_ok=True)
-print(f"Output dir = {outDir}")
-print("PROCESS")
+print("PROCESSING...")
 _start_time = time.time()
 recoDir = outDir+ f"out_{label}/"
-print(f"Reco dir = {recoDir}")
+print(f"Output dir : {recoDir}")
 Path(recoDir).mkdir(parents=True, exist_ok=True)
-logging.basicConfig(filename=recoDir+f'out_{label}.log', level=logging.INFO, filemode='w')
+logging.basicConfig(filename=recoDir+f'out.log', level=logging.INFO, filemode='w')
 logging.info(sys.argv)
 logging.info(t0)
 logging.info(args.info)
 
 recoData = Data(telescope=tel, input=inData, type=input_type ,label=label, max_nfiles=args.max_nfiles)
 recoData.builddataset()
-outrecoFile = os.path.join(recoDir, "",f"out_{label}_reco.csv")
 process_reco = pr.Processing(data=recoData, outdir=recoDir)
 nPM = len(tel.PMTs)
 rt = args.residual_threshold#mm
@@ -103,14 +101,17 @@ if args.is_ransac:
 #######
 ######
 else: 
-    logging.info("STRAIGHTNESS CHECK [OLD PROCESSING]")
-    process_reco.old_process()
+    try : 
+        logging.info("STRAIGHTNESS CHECK [OLD PROCESSING]")
+        process_reco.old_process()
+    except : 
+        raise Exception("STRAIGHTNESS CHECK not available (ask Raphaël)")
 
-process_reco.to_csv()
+process_reco.to_csv() ##save reco 
 
 t_sec = round(time.time() - _start_time)
 (t_min, t_sec) = divmod(t_sec,60)
 (t_hour,t_min) = divmod(t_min,60)
-t_end = 'runtime process: {}hour:{}min:{}sec'.format(t_hour,t_min,t_sec)
+t_end = 'runtime processing : {}hour:{}min:{}sec'.format(t_hour,t_min,t_sec)
 print(t_end)
 logging.info(t_end)
