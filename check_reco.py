@@ -86,12 +86,12 @@ hmDir.mkdir(parents=True,exist_ok=True)
 hmFiles= {c : hmDir/f"hitmap_{c}.txt" for c in sconfig}
 hmDXDY  = {}
 print("Hit maps (DXDY)")
-hm = AnaHitMap(anabase=ab, input_type=InputType.REAL, panels=tel.panels)
+hm = AnaHitMap(anabase=ab, input_type=input_type, panels=tel.panels)
 ##loop on DXDY histograms (one per tel config) and save it as .txt files
 for c, h in  hm.hDXDY.items():  np.savetxt(hmFiles[c], h, delimiter='\t', fmt='%.5e')
 pl = PlotHitMap(hitmaps=[hm], outdir=str(hmDir))
-pl.XY_map()
-pl.DXDY_map()
+pl.XY_map() #hits per panel
+pl.DXDY_map() #hits per telescope config (3-panel : 1config, 4-panel : 3configs)
 print("save in:")
 os.system(f"ls {hmDir}/*")
 ########
@@ -109,15 +109,14 @@ print(f"save {str(fout)}")
 #######
 
 
-
 #####Charge distributions per panel (in ADC)
 ####COMMENT all this below if you are not interested
 chargeDir = outDir / "charge"
 chargeDir.mkdir(parents=True,exist_ok=True)
-###golden events (GOLD) i.e those with exaclty 1XY/panel = closest to real muons
+###golden events (GOLD) = those with exaclty 1XY/panel = closest to real muons
 ###we use them to compute charge calibration constante per panel to convert from ADC unit to MIP fraction (i.e muon fraction)
 (chargeDir/"gold").mkdir(parents=True, exist_ok=True)
-kwargs = { "index_col": 0,"delimiter": '\t', "nrows": 10000} #optional arguments to parse to pandas dataframe
+kwargs = { "index_col": 0,"delimiter": '\t'}#, "nrows": 10000} #optional arguments to parse to pandas dataframe use in RecoData()
 inlierData = RecoData(file=finlier, telescope=tel, input_type=input_type, kwargs=kwargs, is_inlier=True)
 outlierData = RecoData(file=finlier, telescope=tel, input_type=input_type, kwargs=kwargs, is_inlier=False)
 acGold= AnaCharge(inlier_file=inlierData,

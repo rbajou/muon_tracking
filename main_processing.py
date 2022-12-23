@@ -30,7 +30,6 @@ parser.add_argument('--input_type', '-it', default=None,  help="'DATA' or 'MC'",
 parser.add_argument('--out_dir', '-o', default='/Users/raphael/simu/telescope_SNJ/analysis/RANSACtest/', help='Path to processing output', type=str) 
 parser.add_argument('--label', '-l', default=None, help='Label of the dataset', required=True, type=str)
 parser.add_argument('--max_nfiles', '-max', default=1, help='Maximum number of dataset files to process.', type=int)
-parser.add_argument('--is_ransac', '-ransac', default=True, help='RANSAC reconstruction if True ',type=str2bool)
 parser.add_argument('--residual_threshold', '-rt', default=50, help='RANSAC "distance-to-model" parameter: "residual_threshold" in mm.',type=float)
 parser.add_argument('--min_samples', '-ms', default=2, help='RANSAC size of the initial sample: "min_samples".',type=int)
 parser.add_argument('--max_trials', '-N', default=100, help='RANSAC number of iterations: "max_trials".',type=int)
@@ -81,32 +80,25 @@ is_fit_intersect = args.fit_intersections
 s= f"is_fit_intersect={is_fit_intersect}"
 print(s)
 logging.info(s)
-if args.is_ransac:
-    s = f'RANSAC(residual_threshold={rt}mm, min_samples={ms}, max_trials={N})'
-    print(s)
-    logging.info(s)
-    if input_type==InputType.MC:
-        max_outliers = None
-        logging.info(f"max_outliers={max_outliers}")
-        eff=1.
-        logging.info(f"scint_eff={eff}")
-        process_reco.ransac_reco_pmt(residual_threshold=rt, min_samples=ms, max_trials=N, scint_eff=eff, max_outliers=max_outliers, is_fit_intersect=is_fit_intersect)
-    elif input_type==InputType.DATA: 
-        max_outliers=None #dict={"3p":4, "4p":4}
-        logging.info(f"max_outliers={max_outliers}")
-        langau=None
-        logging.info(f"langau={langau}")
-        process_reco.ransac_reco_pmt(residual_threshold=rt, min_samples=ms, max_trials=N, langau=langau, max_outliers=max_outliers, is_fit_intersect=is_fit_intersect)
-    else: raise ValueError
+
+s = f'RANSAC(residual_threshold={rt}mm, min_samples={ms}, max_trials={N})'
+print(s)
+logging.info(s)
+if input_type==InputType.MC:
+    max_outliers = None
+    logging.info(f"max_outliers={max_outliers}")
+    eff=1.
+    logging.info(f"scint_eff={eff}")
+    process_reco.ransac_reco_pmt(residual_threshold=rt, min_samples=ms, max_trials=N, scint_eff=eff, max_outliers=max_outliers, is_fit_intersect=is_fit_intersect)
+elif input_type==InputType.DATA: 
+    max_outliers=None #dict={"3p":4, "4p":4}
+    logging.info(f"max_outliers={max_outliers}")
+    langau=None
+    logging.info(f"langau={langau}")
+    process_reco.ransac_reco_pmt(residual_threshold=rt, min_samples=ms, max_trials=N, langau=langau, max_outliers=max_outliers, is_fit_intersect=is_fit_intersect)
+else: raise ValueError
 #######
 ######
-else: 
-    try : 
-        logging.info("STRAIGHTNESS CHECK [OLD PROCESSING]")
-        process_reco.old_process()
-    except : 
-        raise Exception("STRAIGHTNESS CHECK not available (ask Raphaël)")
-
 process_reco.to_csv() ##save reco 
 
 t_sec = round(time.time() - _start_time)

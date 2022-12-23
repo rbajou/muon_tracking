@@ -278,27 +278,26 @@ class EvtRate:
         t_min, t_max = tlim
         if t_min > t_max: raise ArgumentError("t_min > t_max")
         time = self.df['timestamp_s'][(t_min <= self.df['timestamp_s']) & (self.df['timestamp_s'] <= t_max)].values
+        
         #mask = ((t_start <= time) & (time <= t_end))
         t_start = int(np.min(time))
         t_end = int(np.max(time))
-        date_tot = [datetime.fromtimestamp(t+t_off) for t in time] #from timestamp in s to proper date
         date_start = datetime.fromtimestamp(t_start+t_off)
         date_start = date(date_start.year, date_start.month, date_start.day )#str(datetime.fromtimestamp(data_tomo[:, 1][0]))
         date_end = datetime.fromtimestamp(t_end+t_off)
         date_end = date(date_end.year, date_end.month, date_end.day )#str(datetime.fromtimestamp(data_tomo[:, 1][-1]))
         self.date_start, self.date_end=  date_start, date_end
         ntimebins = int(abs(t_end - t_start)/width) #hour
-        #fig, ax = plt.subplots(figsize=(16,9))
-        myFmt = mdates.DateFormatter('%d/%m %H:%M')
-        ax.xaxis.set_major_formatter(myFmt) 
-        print(f"run duration = {self.run_duration:1.3e}s = {self.run_duration/(3600):1.3e}h = {self.run_duration/(24*3600):1.3e}d")
+        print(f"run duration = {self.run_duration:1.3e}s = {self.run_duration/(3600):1.3e}h = {self.run_duration/(24*3600):1.3e}days")
         print(f"ntimebins = {ntimebins}")
-        (nevt, dtbin, patches) = ax.hist(date_tot, bins=ntimebins, edgecolor='None', alpha=0.5, label=f"{label}\nnevts={len(time):1.3e}")
+        (nevt, dtbin, patches) = ax.hist(time, bins=ntimebins, edgecolor='None', alpha=0.5, label=f"{label}\nnevts={len(time):1.3e}")
+        datetime_ticks = [datetime.fromtimestamp(int(ts)).strftime('%d/%m %H:%M') for ts in ax.get_xticks()]
+        ax.set_xticklabels(datetime_ticks)
         self.mean = np.mean(nevt)#np.sum(dtbin_centers*nevt)/np.sum(nevt)
         self.std = np.std(nevt)#np.sum(nevt*(dtbin_centers-self.mean)**2)/(np.sum(nevt)-1)
         ax.set_ylabel('events', fontsize=23)
         ax.set_xlabel("time", fontsize=22)
-        plt.figtext(.5,.95, f"Event time distribution from {str(date_start)} to {str(date_end)}", fontsize=14, ha='center')
+        plt.figtext(.5,.95, f"Event time distribution from {str(date_start)} to {str(date_end)}", fontsize=18, ha='center')
         plt.ticklabel_format(axis="y", style="sci", scilimits=(0,0))
        
         
@@ -609,7 +608,8 @@ class AnaCharge:
                 if len(charge_panel[col]) == 0 : continue
                 
                 q = charge_panel[col]/fcal[panel.ID]
-            
+                if fcal[panel.ID] != 1: xlabel="dE [MIP fraction]"
+                
                 ax = f_axs[col]
                 xmax_fig = np.mean(q) + 5*np.std(q)
                 ax.set_xlim(0, xmax_fig)
