@@ -165,23 +165,23 @@ class Cut:
 class AnaBase: 
     def __init__(self, recofile:RecoData, label:str, evtIDs:list=None, tlim:tuple=None, cuts:List=None):
         self.recofile = recofile
-        self.df_reco= self.recofile.df
+        self.df= self.recofile.df
         self.label  = label
         #if tlim is None: self.tlim = (0, int(datetime(2032, 12, 31, hour=23,minute=59,second=59).replace(tzinfo=timezone.utc).timestamp()))
         #else : self.tlim = tlim
-        #self.df_reco= self.df_reco.loc[ ( (self.tlim[0]<self.df_reco['timestamp_s']) & (self.df_reco['timestamp_s']<self.tlim[1]) )]
+        #self.df= self.df.loc[ ( (self.tlim[0]<self.df['timestamp_s']) & (self.df['timestamp_s']<self.tlim[1]) )]
 
-        self.df_reco_gold= self.df_reco.loc[self.df_reco['gold']==1.]
+        self.df_gold= self.df.loc[self.df['gold']==1.]
         
         if cuts is not None:
-            for cut in cuts: self.df_reco = cut(self.df_reco)
+            for cut in cuts: self.df = cut(self.df)
             
         if evtIDs:
-            df_tmp = self.df_reco.loc[evtIDs, : ] #Reconstructed primaries
-            self.df_reco= df_tmp[~df_tmp.index.duplicated(keep='first')]
+            df_tmp = self.df.loc[evtIDs, : ] #Reconstructed primaries
+            self.df= df_tmp[~df_tmp.index.duplicated(keep='first')]
             self.evtIDs=evtIDs
         else: 
-            self.evtIDs = list(self.df_reco.index)
+            self.evtIDs = list(self.df.index)
 
 
 def GoF(ax, df, column, color:str="blue", is_gold:bool=False, *args, **kwargs):
@@ -306,7 +306,7 @@ class AnaHitMap:
     def __init__(self, anabase:AnaBase, input_type:InputType, panels:List[Panel], dict_filter:dict=None):#,  binsXY:tuple, rangeXY:tuple, binsDXDY:tuple, rangeDXDY:tuple):
         self.tel = anabase.recofile.telescope
         self.panels = panels
-        self.df_reco= anabase.df_reco
+        self.df= anabase.df
         self.input_type = input_type
         self.label = anabase.label
         self.dict_filter = dict_filter       
@@ -321,9 +321,8 @@ class AnaHitMap:
         w = self.tel.panels[0].matrix.scintillator.width
         self.rangeDXDY = { conf : ((np.min(los[:,:,0])*w, np.max(los[:,:,0])*w), (np.min(los[:,:,1])*w, np.max(los[:,:,1])*w) ) for conf,los in self.tel.los.items()}
         
-        self.df=self.df_reco.copy()
-        #####N.B Sometimes dataset contains events that share the same index evtID, so better reindex the dataframe with the row num
-        #self.df.index = np.arange(0, len(self.df))        
+        self.df=self.df.copy()
+        #####N.B Sometimes tomography dataset contains events that share the same index evtID, so better reindex the dataframe with the row num
         colnames= ['timestamp_ns', 'gold']#,'residuals']
         self.df_DXDY = self.df[colnames]
         self.mix  = pd.MultiIndex.from_arrays([self.df.index,self.df['timestamp_s']], names=['evtID', 'timestamp_s'])
@@ -353,14 +352,11 @@ class AnaHitMap:
             sel = (sfront & srear)
             ###apply filter on evt ids
             if self.dict_filter is not None:                
-                ###if filter multi_index :
                 filter = self.dict_filter[conf]
                 self.idx[conf]  = df[sel].loc[filter].index
             else : self.idx[conf]  = df[sel].index
             dftmp = df.loc[self.idx[conf]] 
             DX[conf], DY[conf] =  dftmp[xposf].values - dftmp[xposr].values, dftmp[yposf].values - dftmp[yposr].values
-            
-            pass
 
         self.hDXDY = { conf : np.histogram2d(DX[conf], DY[conf], bins=[bdx,bdy], range=[dxlim, dylim] )[0] for (conf,(bdx,bdy)), (_,(dxlim, dylim)) in zip(self.binsDXDY.items(), self.rangeDXDY.items())  }
         

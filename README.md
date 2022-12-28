@@ -16,7 +16,7 @@ RANSAC parameters:
 
 The output is a directory with csv.gz and log files containing: 
 - ```reco.csv.gz``` : RANSAC output (intersection points XY coordinates between fitted trajectories and each telescope panel) for each filtered track.
-- ```inlier.csv.gz``` : RANSAC inliers and outliers XYZ points  coordinates and their associated ADC content (in X and Y)
+- ```inlier.csv.gz``` : RANSAC inliers and outliers XYZ points  coordinates and their associated charge content in X and Y (ADC)
 - ```out.log``` : log file featuring info on track reconstruction processing
 
 Once the processing output is here, you can run the ```check_reco.py``` script to get XY maps and DXDY maps with the following arguments:

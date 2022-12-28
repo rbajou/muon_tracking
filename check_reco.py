@@ -90,7 +90,7 @@ hm = AnaHitMap(anabase=ab, input_type=input_type, panels=tel.panels)
 ##loop on DXDY histograms (one per tel config) and save it as .txt files
 for c, h in  hm.hDXDY.items():  np.savetxt(hmFiles[c], h, delimiter='\t', fmt='%.5e')
 pl = PlotHitMap(hitmaps=[hm], outdir=str(hmDir))
-pl.XY_map() #hits per panel
+pl.XY_map(transpose=True) #hits per panel
 pl.DXDY_map() #hits per telescope config (3-panel : 1config, 4-panel : 3configs)
 print("save in:")
 os.system(f"ls {hmDir}/*")
@@ -99,7 +99,7 @@ os.system(f"ls {hmDir}/*")
 #####Event rate
 fout = outDir / "event_rate.png"
 fig, ax = plt.subplots(figsize=(16,9))
-evtrateCal = EvtRate(df=ab.df_reco)
+evtrateCal = EvtRate(df=ab.df)
 label = "all"
 evtrateCal(ax, width=3600, label=label) #width = size time bin width in seconds 
 ax.legend(loc='best')
