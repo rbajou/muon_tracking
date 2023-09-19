@@ -14,13 +14,13 @@ filename = inspect.getframeinfo(inspect.currentframe()).filename
 script_path = os.path.dirname(os.path.abspath(filename))
 import pandas as pd
 import glob
+import argparse
 #personal modules
-from configuration import Telescope, str2telescope, Event
-from processing import InputType
+from configuration import Telescope, str2telescope
+from processing import InputType, Event
 from analysis import EventType, RecoData
 from random import sample, choice
 
-import analysis as ana
 
 class RawEvtDisplay:
     def __init__(self, telescope:Telescope, label:str="", outdir:str=os.environ['HOME'], max_nevt:int=1):
@@ -145,9 +145,8 @@ class RecoEvtDisplay:
         self.label = label
         self.outdir = outdir
         try:
-            f_reco = glob.glob(os.path.join(recodir,  '', '*_reco*') )[0]
-            f_inlier = glob.glob(os.path.join(recodir,  '', '*_inlier*') )[0]
-            f_outlier = glob.glob(os.path.join(recodir,  '', '*_outlier*') )[0]
+            f_reco = glob.glob(os.path.join(recodir,  '', '*reco*') )[0]
+            f_inlier = glob.glob(os.path.join(recodir,  '', '*inlier*') )[0]
         except: raise ValueError
         reco_trk  = RecoData(file=f_reco, 
                             telescope=self.telescope, 
@@ -156,39 +155,47 @@ class RecoEvtDisplay:
         inlier_data = RecoData(file=f_inlier, 
                                 telescope=self.telescope, 
                                 input_type=input_type,
-                                kwargs=kwargs)
-        outlier_data = RecoData(file=f_outlier, 
-                                telescope=self.telescope, 
-                                input_type=input_type,
-                                kwargs=kwargs)
+                                kwargs=kwargs,
+                                is_all=True)
+      
 #        self.df = self.df[self.df.index.isin(self.index)]
         self.df_reco = reco_trk.df
-        self.evtID = list(self.df_reco.index)
-        self.df_inlier = inlier_data.df
+        
+        self.df_inlier = inlier_data.df[inlier_data.df["inlier"]==1]
         self.evtID_in = list(set(self.df_inlier.index))
+        #print(self.df_inlier)
         sumADC_XY_in = self.df_inlier['ADC_X'] + self.df_inlier['ADC_Y'] 
         self.df_inlier = self.df_inlier.assign(sumADC_XY=pd.Series(sumADC_XY_in).values)
         
-        self.df_outlier = outlier_data.df
+        self.df_outlier = inlier_data.df[inlier_data.df["inlier"]==0]
+        #print("self.df_outlier", self.df_outlier)
         self.evtID_out = list(set(self.df_outlier.index))
         sumADC_XY_out = self.df_outlier['ADC_X'] + self.df_outlier['ADC_Y'] 
         self.df_outlier = self.df_outlier.assign(sumADC_XY=pd.Series(sumADC_XY_out).values)
-
+        
+        self.handles = [] #legend    
+        
     def get_points(self, evtID:Union[List, int]):
+
         l_evtID = []
         if type(evtID)==list: l_evtID.extend(evtID)
         else : l_evtID.append(evtID)
-        self.xyz_reco = { i : np.array([ np.concatenate( (self.df_reco.loc[i][[f'X_{p.position.loc}', f'Y_{p.position.loc}']].to_numpy(), p.position.z) , axis=None )   for p in self.telescope.panels ]) for i in l_evtID}
+        
+        Z = np.sort(list(set(self.df_inlier['Z'])))
+        self.xyz_reco = None
+        if len(self.df_reco) > 0 : 
+            self.xyz_reco = { i : np.array([ np.concatenate( (self.df_reco.loc[i][[f'X_{p.position.loc}', f'Y_{p.position.loc}']].to_numpy(), p.position.z) , axis=None )   for p in self.telescope.panels ]) for i in l_evtID}
+
         self.xyz_in = { i : self.df_inlier.loc[i][['X', 'Y', 'Z']].to_numpy() if i in self.evtID_in else np.zeros(3) for i in l_evtID}
         self.adc_in = { i : self.df_inlier.loc[i]['sumADC_XY'].tolist() if i in self.evtID_in else [0] for i in l_evtID }
         self.xyz_out = { i : self.df_outlier.loc[i][['X', 'Y', 'Z']].to_numpy() if i in self.evtID_out else np.zeros(3) for i in l_evtID}
         self.adc_out = { i : self.df_outlier.loc[i]['sumADC_XY'].tolist() if i in self.evtID_out else [0] for i in l_evtID}
+        #print("self.adc_in", self.adc_in)
+        #print("self.adc_out", self.adc_out)
 
-    def plot3D(self, ax, evtID:Union[List, int], isReco:bool=True, isInlier:bool=True, isOutlier:bool=True  ):
-        #fig = plt.figure()
-        #ax = fig.add_subplot(111, projection='3d' )
+    def plot3D(self, fig, ax, evtID:Union[List, int], isReco:bool=True, isInlier:bool=True, isOutlier:bool=True  ):
+        self.telescope.plot3D(fig, ax, position=np.zeros(3))
         ax.set_facecolor('white')
-        self.telescope.plot3D(ax, position=np.zeros(3))
         vis_factor = 100
         l_evtID = []
         handles = [] #legend            
@@ -304,8 +311,9 @@ class RecoEvtDisplay:
             # purple_triangle = mlines.Line2D([], [], color='purple', marker='^', linestyle='None',
             #                   markersize=10, label='Purple triangles')
 
-            ax.legend(handles=handles, fontsize=16, loc='upper right')
+            ax.legend(handles=handles, fontsize='large',  loc=(0.5,0.85))#'upper right')#, pad=-10)
             ax.view_init(elev=10., azim=-60)
+
 
 
 @dataclass
@@ -331,4 +339,45 @@ class EmissionSurface:
         
 
 if __name__ == '__main__':
-    pass    
+     
+    parser=argparse.ArgumentParser(
+    description='''Plot event displays of random reconstructed events drawn in reco file.''', epilog="""All is well that ends well.""")
+    parser.add_argument('--telescope', '-tel', required=True, help='Input telescope name (e.g "tel_SNJ"). It provides the associated configuration.',  type=str2telescope)
+    parser.add_argument('--reco_dir', '-i', required=True, help="",  type=str)
+    parser.add_argument('--out_dir', '-o', required=True, help="",  type=str)
+    parser.add_argument('--nevts', '-n', help="number of events to display", type=int, default=1)
+    
+    args=parser.parse_args()
+    tel = args.telescope
+    
+    start_time = time.time()
+    print("Start: ", time.strftime("%H:%M:%S", time.localtime()))#start time
+    tel = args.telescope
+    reco_dir = Path(args.reco_dir)
+    out_dir = Path(args.out_dir)
+    
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    print(f'outdir: {out_dir}')
+    
+    recofileTomo = glob.glob(str(reco_dir/"*reco*"))[0]
+    input_type = InputType.DATA
+    evttype = EventType.MAIN
+    
+    recofile=RecoData(file=recofileTomo, 
+                       telescope=tel,  
+                         input_type=input_type, ) 
+    df = recofile.df
+    N= args.nevts 
+    evtID_good= sample(list(df.index), N) 
+    print(f"evtID = {evtID_good}")
+    
+    kwargs = {"delimiter":"\t", "index_col":0} 
+    pl = RecoEvtDisplay(telescope=tel, recodir=reco_dir, label="", outdir=out_dir, kwargs=kwargs)
+    for i, ev in enumerate(evtID_good):
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d' )
+        pl.get_points(evtID=ev)
+        pl.plot3D(fig=fig, ax=ax, evtID=[ev], isReco=True, isInlier=True, isOutlier=True) 
+        fout = str(out_dir/f"evt{ev}.png")
+        plt.savefig(fout)
+        plt.close()    

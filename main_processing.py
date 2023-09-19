@@ -26,14 +26,14 @@ parser=argparse.ArgumentParser(
 description='''For a given muon telescope configuration, this script allows to perform RANSAC tracking and outputs trajectrory-panel crossing XY coordinates''', epilog="""All is well that ends well.""")
 parser.add_argument('--telescope', '-tel', default=dict_tel["SNJ"], help='Input telescope name. It provides the associated configuration.', type=str2telescope)
 parser.add_argument('--input_data', '-dat', default=[], nargs="*", help='/path/to/datafile/  One can input a data directory, a single datfile, or a list of data files e.g "--input_data <file1.dat> <file2.dat>"', type=str)
-parser.add_argument('--input_type', '-it', default=None,  help="'DATA' or 'MC'", type=str)
+parser.add_argument('--input_type', '-it', default='DATA',  help="'DATA' or 'MC'", type=str)
 parser.add_argument('--out_dir', '-o', default='/Users/raphael/simu/telescope_SNJ/analysis/RANSACtest/', help='Path to processing output', type=str) 
-parser.add_argument('--label', '-l', default=None, help='Label of the dataset', required=True, type=str)
+parser.add_argument('--label', '-l', default='', help='Label of the dataset', type=str)
 parser.add_argument('--max_nfiles', '-max', default=1, help='Maximum number of dataset files to process.', type=int)
 parser.add_argument('--residual_threshold', '-rt', default=50, help='RANSAC "distance-to-model" parameter: "residual_threshold" in mm.',type=float)
 parser.add_argument('--min_samples', '-ms', default=2, help='RANSAC size of the initial sample: "min_samples".',type=int)
-parser.add_argument('--max_trials', '-N', default=100, help='RANSAC number of iterations: "max_trials".',type=int)
-parser.add_argument('--fit_intersections', '-intersect', default=False, help='if true record line model intersection points on panel; else record closest XY points to model',type=str2bool)
+parser.add_argument('--max_trials', '-mt', default=100, help='RANSAC number of iterations: "max_trials".',type=int)
+parser.add_argument('--fit_intersect', '-intersect', default=False, help='if true record line model intersection points on panel; else record closest XY points to model',type=str2bool)
 parser.add_argument('--info', '-info', default=None, help='Additional info',type=str)
 args=parser.parse_args()
 tel = args.telescope
@@ -57,14 +57,17 @@ else: raise argparse.ArgumentTypeError("--input_type should be 'DATA' or 'MC'.")
 
 label = args.label
 print(f"Input data : {inData}")
-outDir = os.path.join(args.out_dir, '' )    
-Path(outDir).mkdir(parents=True, exist_ok=True)
+outDir = Path(args.out_dir)
+outDir.mkdir(parents=True, exist_ok=True)
 print("PROCESSING...")
 _start_time = time.time()
-recoDir = outDir+ f"out_{label}/"
-print(f"Output dir : {recoDir}")
-Path(recoDir).mkdir(parents=True, exist_ok=True)
-logging.basicConfig(filename=recoDir+f'out.log', level=logging.INFO, filemode='w')
+recoDir = outDir / "out"
+recoDir.mkdir(parents=True, exist_ok=True)
+print(f"Output dir : {str(recoDir)}")
+
+strdate = time.strftime("%d%m%Y_%H%M")
+flog =str(outDir/f'{strdate}.log')
+logging.basicConfig(filename=flog, level=logging.INFO, filemode='w')
 logging.info(sys.argv)
 logging.info(t0)
 logging.info(args.info)
@@ -76,7 +79,7 @@ nPM = len(tel.PMTs)
 rt = args.residual_threshold#mm
 ms = args.min_samples
 N  = args.max_trials
-is_fit_intersect = args.fit_intersections
+is_fit_intersect = args.fit_intersect
 s= f"is_fit_intersect={is_fit_intersect}"
 #print(s)
 logging.info(s)

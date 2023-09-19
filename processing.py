@@ -7,7 +7,6 @@ from enum import Enum, auto
 import numpy as np
 import os
 from pathlib import Path
-from scipy.optimize.optimize import main
 import inspect
 filename = inspect.getframeinfo(inspect.currentframe()).filename
 script_path = os.path.dirname(os.path.abspath(filename))
@@ -676,8 +675,8 @@ class Processing:
                 if i != len(lines)-1: self.nevt_tot += 1                
             
             out_matrix =  out_matrix[~np.all( (out_matrix == 0.), axis=1)]
-            self.df_reco  = self.df_reco.append(pd.DataFrame(out_matrix, columns=headers))
-        
+            #self.df_reco  = self.df_reco.append(pd.DataFrame(out_matrix, columns=headers))
+            self.df_reco = pd.concat([self.df_reco, pd.DataFrame(out_matrix, columns=self.df_reco.columns)])
          ####format columns 
         for col in list(set(self.df_reco.columns) - set(self.col_coord)):
             self.df_reco[col] = np.ndarray.astype(self.df_reco[col].values, dtype=int)
@@ -712,8 +711,8 @@ class Processing:
             is_inl = reco.inliers[i]
             timestamp_s, timestamp_ns = evt.impacts[adc[2]].timestamp_s, evt.impacts[adc[2]].timestamp_ns
             df_tmp = pd.DataFrame(np.array([ [int(evt.ID), int(timestamp_s), int(timestamp_ns), int(is_inl), int(evt.gold), xyz[0], xyz[1], xyz[2], adc[0], adc[1]] ]), columns=self.col_inlier)
-            self.df_inlier  = self.df_inlier.append(df_tmp)
-        
+            #self.df_inlier  = self.df_inlier.append(df_tmp)
+            self.df_inlier = pd.concat([self.df_inlier, df_tmp])
         
    
 

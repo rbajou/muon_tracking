@@ -13,7 +13,10 @@ filename = inspect.getframeinfo(inspect.currentframe()).filename
 script_path = os.path.dirname(os.path.abspath(filename))
 import argparse
 import json
-    
+#personal modules
+from tools.tools import MyAxes3D
+
+
 @dataclass(frozen=True)
 class Scintillator:
     type: str 
@@ -141,7 +144,12 @@ class Telescope:
         return mat_los
 
 
-    def plot3D(self, ax, position):
+    def plot3D(self, fig, ax, position:np.ndarray=np.zeros(3)):
+        '''
+        Input:
+        - 'ax' (plt.Axes3D) : e.g 'ax = fig.add_subplot(111, projection='3d')'
+        - 'position' (np.ndarray)
+        '''
         zticks=[]
         for p in self.panels:
             w  = float(p.matrix.scintillator.width)
@@ -149,24 +157,49 @@ class Telescope:
             nbarsY = int(p.matrix.nbarsY)
             sx = w*nbarsX 
             sy = w*nbarsY
-            X  = np.linspace(position[0], position[0]+sx , nbarsX+1 )
-            Y = np.linspace(position[1], position[1]+sy,  nbarsY+1 )
+            #X  = np.linspace(position[0]-sx/2, position[0]+sx/2 , nbarsX+1 )
+            #Y = np.linspace(position[1]-sy/2, position[1]+sy/2,  nbarsY+1 )
+            X = np.linspace(position[0], position[0]+sx , nbarsX+1 )
+            Y = np.linspace(position[0], position[0]+sy , nbarsX+1 )
             X, Y = np.meshgrid(X, Y)
             zpos = position[2]
             Z = np.ones(shape=X.shape)*(zpos + p.position.z)
-            ax.plot_surface(X,Y,Z, alpha=0.2, color='darkturquoise', edgecolor='turquoise' )
+            ax.text(0, 0, zpos + p.position.z, p.position.loc, 'y', alpha=0.5, color='grey')#, rotation_mode='default')
+            #ax.text2D(0.05, 0.95, "2D Text", transform=ax.transAxes)
+            #ax.plot_surface(X,Y,Z, alpha=0.2, color='darkturquoise', edgecolor='turquoise' )
+            ax.plot_surface(X,Y,Z, alpha=0.2, color='greenyellow', edgecolor='turquoise' )
+            #ax.plot_surface(X,Y,Z, alpha=0.2, color='grey', edgecolor='greenyellow' )
             zticks.append(Z[0,0])
+        ###shield panel
+        X = np.linspace(position[0], position[0]+sx ,2 )
+        Y = np.linspace(position[0], position[0]+sy ,2 )
+        X, Y = np.meshgrid(X, Y)
+        zshield = self.panels[-1].position.z/2
+        Z = np.ones(shape=X.shape)*(zpos + zshield)
+        #ax.plot_surface(X,Y,Z, alpha=0.2, color='darkturquoise', edgecolor='turquoise' )
+        ax.plot_surface(X,Y,Z, alpha=0.1, color='none', edgecolor='tomato' )
+        ax.text(0, 0, zshield, "Shielding", 'y', alpha=0.5, color='grey')
         
         panel_side=float(self.panels[0].matrix.nbarsX)*float(self.panels[0].matrix.scintillator.width)
         ax.set_xlabel("X [mm]")
         ax.set_ylabel("Y [mm]")
-        ax.set_xticks(np.linspace(0, panel_side, 5))
-        ax.set_yticks(np.linspace(0, panel_side, 5))
-        ax.set_zlabel("Z [mm]")
-        ax.set(xlim=[0,panel_side], ylim=[0,panel_side], zlim=[0, self.length])   
+        ax.set_xticks(np.linspace(0, panel_side, 3))
+        ax.set_yticks(np.linspace(0, panel_side, 3))
+       # ax.set_zlabel("Z [mm]")
+        
         ax.w_xaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
         ax.invert_zaxis()
         ax.set_zticks(zticks)
+        ax.set_zticklabels([])
+        ax = fig.add_axes(MyAxes3D(ax, 'l'))
+        #zpos = [pan.position.z for pan in self.telescope.panels]
+        ax.set_zticks(zticks)
+        ax.set_zticklabels([])
+        ax.annotate("Z", xy=(0.5, .5), xycoords='axes fraction', xytext=(0.04, .78),)
+        
+        
+        
+        
         return ax
 
 
@@ -202,7 +235,7 @@ tel_SBR= Telescope(name = "SBR", panels=panels_SBR, PMTs = pmt_SBR)
 ChMap_COP = [ChMap32, ChMap16, ChMap32]
 npanels_COP = 3
 matrix_COP = [matrixv2_0, matrixv1_1, matrixv2_0]
-pos_COP = [ Position(PositionEnum.Front,0), Position(PositionEnum.Middle1, 600), Position(PositionEnum.Middle2, 1200)]
+pos_COP = [ Position(PositionEnum.Front,0), Position(PositionEnum.Middle1, 600), Position(PositionEnum.Rear, 1200)]
 panel_id_COP = [0, 1, 2] 
 panels_COP = [ Panel(ID=panID, matrix=m, position=pos, channelmap=map) for (m, pos, panID, map) in zip(matrix_COP, pos_COP, panel_id_COP, ChMap_COP ) ]
 pmt_COP =  [ PMT(ID=int(pan.ID), panel=pan, channelmap=pan.channelmap) for pan in panels_COP ]
@@ -268,29 +301,4 @@ def str2telescope(v):
 
 
 if __name__ == '__main__':
-    #data = Data(telescope=tel_SNJ, input="/Users/raphael/simu/telescope_SNJ/analysis/test_cry1evt.dat")#, url="https://cours.ip2i.in2p3.fr/marteau/muography/ZENITH/OM/", save_path="/Users/raphael/Desktop/test/")
-    
-    c, _ = list(tel_SNJ.configurations.keys()), tel_SNJ.configurations.values()
-    
-    pos = Position(loc=PositionEnum.Front, z=0)
-#    print(pos.)
-    print(tel_SNJ.panels[-1].position.loc)
-    print(tel_SNJ.panels[-1].position.z)
-    print(tel_SNJ.utm)
-#    print(tel_SNJ.los['3p1'].shape[:-1])
- #   arr = tel_SNJ.get_los(tel_SNJ.panels[0], tel_SNJ.panels[-2])
- #   arr_rs =  arr.reshape(arr.shape[0], -1)
-#    np.savetxt("/Users/raphael/Desktop/test_dxdy.txt", arr_rs, fmt="%.0f")
-    #os.system("code /Users/raphael/Desktop/test_dxdy.txt")
-    # arr = tel_SNJ.get_pixel_xy(tel_SNJ.panels[0], tel_SNJ.panels[-2])
-    # print(arr[15,15,:])
-    # print(arr.shape)
-    # arr_rs =  arr.reshape(arr.shape[0], -1)
-    # np.savetxt("/Users/raphael/Desktop/test_pix_xy.txt", arr_rs, fmt="%.0f")
-    #os.system("code /Users/raphael/Desktop/test_pix_xy.txt")
-    #print(tel_SNJ.panels[1].position[1])
-    #print(tel_BR.los['3p1'])
-    #print(channelmaps_SBR)
-    # pos = Position.Front
-    # pos.value = 60 
     pass

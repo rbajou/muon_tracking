@@ -5,6 +5,7 @@ from argparse import ArgumentError
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import SubplotSpec
+from mpl_toolkits.mplot3d import axes3d
 import sys
 import os
 import gzip
@@ -323,60 +324,62 @@ def adjust_lightness(color, amount=0.3):
     c = colorsys.rgb_to_hls(*mc.to_rgb(c))
     return colorsys.hls_to_rgb(c[0], max(0, min(1, amount * c[1])), c[2])
 
+class MyAxes3D(axes3d.Axes3D):
+    '''
+    https://stackoverflow.com/questions/15042129/changing-position-of-vertical-z-axis-of-3d-plot-matplotlib
+    '''
+    def __init__(self, baseObject, sides_to_draw):
+        self.__class__ = type(baseObject.__class__.__name__,
+                              (self.__class__, baseObject.__class__),
+                              {})
+        self.__dict__ = baseObject.__dict__
+        self.sides_to_draw = list(sides_to_draw)
+        self.mouse_init()
+
+    def set_some_features_visibility(self, visible):
+        for t in self.w_zaxis.get_ticklines() + self.w_zaxis.get_ticklabels():
+            t.set_visible(visible)
+        self.w_zaxis.line.set_visible(visible)
+        self.w_zaxis.pane.set_visible(visible)
+        self.w_zaxis.label.set_visible(visible)
+
+    def draw(self, renderer):
+        # set visibility of some features False 
+        self.set_some_features_visibility(False)
+        # draw the axes
+        super(MyAxes3D, self).draw(renderer)
+        # set visibility of some features True. 
+        # This could be adapted to set your features to desired visibility, 
+        # e.g. storing the previous values and restoring the values
+        self.set_some_features_visibility(True)
+
+        zaxis = self.zaxis
+        draw_grid_old = zaxis.axes._draw_grid
+        # disable draw grid
+        zaxis.axes._draw_grid = False
+
+        tmp_planes = zaxis._PLANES
+
+        if 'l' in self.sides_to_draw :
+            # draw zaxis on the left side
+            zaxis._PLANES = (tmp_planes[2], tmp_planes[3],
+                             tmp_planes[0], tmp_planes[1],
+                             tmp_planes[4], tmp_planes[5])
+            zaxis.draw(renderer)
+        if 'r' in self.sides_to_draw :
+            # draw zaxis on the right side
+            zaxis._PLANES = (tmp_planes[3], tmp_planes[2], 
+                             tmp_planes[1], tmp_planes[0], 
+                             tmp_planes[4], tmp_planes[5])
+            zaxis.draw(renderer)
+
+        zaxis._PLANES = tmp_planes
+
+        # disable draw grid
+        zaxis.axes._draw_grid = draw_grid_old
+
+
 
 if __name__=="__main__":
     
-    
-    print(wd_path)
-    exit()
-    #
-    # The data in the question.
-    #
-    x = np.array([10, 12, 7, 8])
-    sigma_i = np.array([0.8, 1.2, 0.5, 1.5])
-    res = var_wt(x, sigma_i)
-    
-    # A parametric bootstrap.
-    #
-    n = len(x)
-    print(res['Variance'])
-    sigma = np.sqrt(res['Variance'])
-    print(sigma)
-    mu = res['Mean']
-    print(mu)
-    print(res['Weights'])
-    #w_ij= 1/np.sum(1/(sigma_i**2+sigma**2))*(1/(sigma_i**2+sigma**2))
-    #print(w_ij)
-    exit()
-    #print(sigma)
-    #set.seed(17)
-   
-    ntoy = 5*10**3
-    X = np.zeros( shape=(3,ntoy) )
-   
-    np.random.seed(17)
-    for i in range(ntoy):
-        y = np.random.normal( mu, sigma, n) #rnorm(n, 0, sigma_i)
-        epsilon = np.random.normal( 0, sigma_i, n)
-        x = y + epsilon
-        X[:, i] = list(var_wt(x, sigma_i).values())
-        
-    #
-    # Display the results.
-    #
-    
-    fig, ax = plt.subplots(ncols=3, nrows=1)
-    ax[0].hist(np.sqrt(X[0,:]), label="Weighted SD", color="#f0f0f0")
-    #par(mfrow=c(1,3))
-    #hist(sqrt(X[1,]), main="Weighted SD", col="#f0f0f0", xlab="")
-    ax[0].axvline(x =sigma, linewidth=2, color="red")
-    ax[1].hist(X[1,:], label="Weighted Mean", color="#f0f0f0")
-    #abline(v = mu, lwd=2, col="#1010d0")
-    ax[1].axvline(x = mu, linewidth=2, color="blue")
-    
-    ax[-1].hist(X[2,:],  label="Iterations")
-    
-    ax[-1].set_yscale('log')#par(mfrow=c(1,1))
-    plt.show()
-    #(quantile(X[2,], c (0.025, 0.975))) # A central 95% interval of the weighted means
-    print(np.quantile(X[1,:], np.array([0.025, 0.975])))
+    pass

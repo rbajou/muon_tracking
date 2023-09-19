@@ -23,7 +23,7 @@ simu_path = os.path.abspath(os.path.join(script_path, os.pardir))
 from configuration import str2telescope
 from processing import InputType
 import tools
-from analysis import EvtRate, EventType, RecoData, Cut, AnaBase, AnaHitMap, AnaCharge, PlotHitMap
+from analysis import EvtRate, EventType, RecoData, AnaBase, AnaHitMap, AnaCharge, PlotHitMap
 from acceptance import Acceptance
 
 
