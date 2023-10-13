@@ -1,25 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from typing import List, Union
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines  #use for legend settings
 import os
 from pathlib import Path
 import time
-import yaml
-import inspect
-filename = inspect.getframeinfo(inspect.currentframe()).filename
-script_path = os.path.dirname(os.path.abspath(filename))
 import pandas as pd
 import glob
 import argparse
-#personal modules
-from configuration import Telescope, str2telescope
-from processing import InputType, Event
-from analysis import EventType, RecoData
 from random import sample, choice
+#personal modules
+from muon_tracking.configuration import Telescope, str2telescope
+from muon_tracking.processing import InputType, Event
+from muon_tracking.analysis import EventType, RecoData
 
 
 class RawEvtDisplay:

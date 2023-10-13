@@ -1,3 +1,6 @@
 /.DS_Store
 /__pycache__
-/tools/__pycache__
+dist/
+build/
+muon_tracking.egg-info/
+muon_tracking/__pycache__

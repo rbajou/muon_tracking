@@ -3,7 +3,6 @@
 
 
 from dataclasses import dataclass, field
-from abc import abstractmethod
 from typing import List
 from enum import Enum, auto
 import numpy as np 
@@ -14,7 +13,7 @@ script_path = os.path.dirname(os.path.abspath(filename))
 import argparse
 import json
 #personal modules
-from tools.tools import MyAxes3D
+from muon_tracking import tools
 
 
 @dataclass(frozen=True)
@@ -28,7 +27,7 @@ class Scintillator:
 
 @dataclass
 class ChannelMap:
-    file: str #= os.path.join(script_path, "", "ChannelNoXYMaps/mapping16x16.dat")
+    file: str #= os.path.join("muon_tracking", "AcquisitionParams", "ChannelNoXYMaps", "mapping16x16.dat")
     
     def map(self):
         """
@@ -178,7 +177,7 @@ class Telescope:
         Z = np.ones(shape=X.shape)*(zpos + zshield)
         #ax.plot_surface(X,Y,Z, alpha=0.2, color='darkturquoise', edgecolor='turquoise' )
         ax.plot_surface(X,Y,Z, alpha=0.1, color='none', edgecolor='tomato' )
-        ax.text(0, 0, zshield, "Shielding", 'y', alpha=0.5, color='grey')
+        ax.text(sx, 0, zshield, "Shielding", 'y', alpha=0.5, color='grey')
         
         panel_side=float(self.panels[0].matrix.nbarsX)*float(self.panels[0].matrix.scintillator.width)
         ax.set_xlabel("X [mm]")
@@ -187,11 +186,11 @@ class Telescope:
         ax.set_yticks(np.linspace(0, panel_side, 3))
        # ax.set_zlabel("Z [mm]")
         
-        ax.w_xaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
+        ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 1.0))
         ax.invert_zaxis()
         ax.set_zticks(zticks)
         ax.set_zticklabels([])
-        ax = fig.add_axes(MyAxes3D(ax, 'l'))
+        ax = fig.add_axes(tools.MyAxes3D(ax, 'l'))
         #zpos = [pan.position.z for pan in self.telescope.panels]
         ax.set_zticks(zticks)
         ax.set_zticklabels([])
@@ -208,8 +207,9 @@ scint_Fermi = Scintillator(type="Fermilab", length=800, width=50, thickness=7 )
 scint_JINR = Scintillator(type="JINR", length=800, width=25, thickness=7 )
 matrixv1_1 = Matrix(version="1.1",  scintillator=scint_Fermi, nbarsX=16, nbarsY= 16, wls_type="BCF91A",fiber_out="TR644 POM")
 matrixv2_0 = Matrix(version="2.0",  scintillator=scint_JINR, nbarsX=32, nbarsY= 32, wls_type="Y11",fiber_out="TR644 POM")
-ChMap16 = ChannelMap(file=os.path.join(script_path, "", "ChannelNoXYMaps/mapping16x16.json"))
-ChMap32 = ChannelMap(file=os.path.join(script_path, "", "ChannelNoXYMaps/mapping32x32.json"))
+#ChMap16 = ChannelMap(file=os.path.join("muon_tracking", "AcquisitionParams", "ChannelNoXYMaps", "mapping16x16.json"))
+ChMap16 = ChannelMap(file=os.path.join(script_path, "AcquisitionParams", "ChannelNoXYMaps", "mapping16x16.json"))
+ChMap32 = ChannelMap(file=os.path.join(script_path, "AcquisitionParams", "ChannelNoXYMaps", "mapping32x32.json"))
 ####SNJ: SuperNainJaune GW Parking 2019
 npanels_SNJ=4
 matrix_SNJ = [matrixv1_1 for _ in range(npanels_SNJ)]
@@ -222,7 +222,7 @@ tel_SNJ.azimuth = 20
 tel_SNJ.inclination = 16
 
 #####SBR: SuperBaronRouge GW Rocher Fendu 2021-2022 4 matrices = 4 * v1.1
-ChMapSBR = ChannelMap(file=os.path.join(script_path, "", "ChannelNoXYMaps/mapping16x16_SBR.json"))
+ChMapSBR = ChannelMap(file=os.path.join(script_path, "AcquisitionParams", "ChannelNoXYMaps", "mapping16x16_SBR.json"))
 npanels_SBR = 4
 matrix_SBR = [matrixv1_1 for _ in range(npanels_SBR)]
 pos_SBR = [ Position(PositionEnum.Front,0), Position(PositionEnum.Middle1, 600), Position(PositionEnum.Middle2, 1200), Position(PositionEnum.Rear, 1800) ]

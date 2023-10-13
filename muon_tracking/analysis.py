@@ -5,38 +5,34 @@ from dataclasses import dataclass, field
 from typing import List, Union, Dict
 from enum import Enum, auto
 import numpy as np
-from matplotlib.ticker import MaxNLocator, MultipleLocator, FormatStrFormatter
+from matplotlib.ticker import MultipleLocator, FormatStrFormatter
 import matplotlib.pyplot as plt
 plt.rc('font', size=12)
 plt.rc('axes', labelsize=12)
 plt.rc('xtick', labelsize=12)
 plt.rc('ytick', labelsize=12)
 plt.rc('legend', fontsize=12)
-import matplotlib.colors as mcolors
 from matplotlib.gridspec import GridSpec
 from matplotlib.offsetbox import AnchoredText
 from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-import matplotlib.dates as mdates
 import inspect
 import scipy.io as sio
-from scipy import interpolate
 from scipy.optimize import curve_fit
-from scipy import signal
 import pandas as pd
 import pylandau
 import os
 from pathlib import Path
 from datetime import datetime, date, timezone
-import sys
 filename = inspect.getframeinfo(inspect.currentframe()).filename
 script_path = os.path.dirname(os.path.abspath(filename))
 #personal modules
-from configuration import Telescope, Panel
-from processing import InputType
+from muon_tracking.configuration import Telescope, Panel
+from muon_tracking.processing import InputType
 main_dir = os.environ["HOME"]
 code_dir = os.path.join(main_dir,"muon_code_v2_0")
-import tools
+from muon_tracking import tools
+from muon_tracking import advanced_fit
 
 
 @dataclass
@@ -84,8 +80,6 @@ class DataType(Enum):
     TOMO  = auto()
 
 param_dir=os.path.join(script_path,'','AcquisitionParams')
-
-
     
 class AcqVars : 
     def __init__(self, telescope:Telescope, param_dir:str=param_dir, mat_files:dict=None, tomo:bool=False):
@@ -379,7 +373,7 @@ class PlotHitMap:
        
         labels = [ hm.label for hm in self.hitmaps]
         for l, (name, hm) in enumerate(zip(labels, self.hitmaps)) : #dict_XY.items()): 
-            tools.tools.create_subtitle(fig, gs[l, ::], f'{name}')
+            tools.create_subtitle(fig, gs[l, ::], f'{name}')
             for i, p in enumerate(self.panels):
                 
                 key = p.position.loc
@@ -416,7 +410,7 @@ class PlotHitMap:
         nconfigs = len(self.sconfig)
         gs = GridSpec(len(self.hitmaps), nconfigs , left=0.05, right=0.95, wspace=0.2, hspace=0.1)
         for l, (name, hm) in enumerate(zip(labels, self.hitmaps)):
-            tools.tools.create_subtitle(fig, gs[l, ::], f'{name}')
+            tools.create_subtitle(fig, gs[l, ::], f'{name}')
             for i, conf in enumerate(self.sconfig):
                 ax1 = fig.add_subplot(gs[l,i], aspect='equal')
                 #if c == 0 : 
@@ -458,7 +452,7 @@ class PlotHitMap:
         fig = plt.figure(1, figsize= (16,9))
         for l,  hm in enumerate(self.hitmaps):
             name = hm.label
-            tools.tools.create_subtitle(fig, gs[l, ::], f'{name}')
+            tools.create_subtitle(fig, gs[l, ::], f'{name}')
             for c, conf in enumerate(self.sconfig):
                 hist = hm.hDXDY[conf]
                 ax = fig.add_subplot(gs[l,c], aspect='equal')
@@ -561,7 +555,7 @@ class AnaCharge:
             values[0], values[1] =  values[0]/fscale, values[1]/fscale
             errors[0], errors[1] =  errors[0]/fscale, errors[1]/fscale
         elif input_type == "DATA" : 
-            values, errors, m = tools.advanced_fit.fit_landau_migrad(
+            values, errors, m = advanced_fit.fit_landau_migrad(
                                             xfit,
                                             yfit,
                                             p0=[mpv, eta, sigma, amp],#

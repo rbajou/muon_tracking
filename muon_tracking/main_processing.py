@@ -3,18 +3,14 @@
 import sys
 import os
 from pathlib import Path
-from configuration import dict_tel, Telescope,  str2telescope
-from processing import InputType, Data
-import inspect
-filename = inspect.getframeinfo(inspect.currentframe()).filename
-script_path = os.path.dirname(os.path.abspath(filename))
-wd_path = os.path.abspath(os.path.join(script_path, os.pardir))#working directory path
+from muon_tracking.configuration import dict_tel,  str2telescope
+from muon_tracking.processing import InputType, Data
 import argparse
 import time
 import logging
 #personal modules
-import processing as pr
-from tools.tools import str2bool
+import muon_tracking.processing as pr
+from muon_tracking.tools import str2bool
 
 
 _start_time = time.time()
@@ -25,9 +21,9 @@ home_path = os.environ["HOME"]
 parser=argparse.ArgumentParser(
 description='''For a given muon telescope configuration, this script allows to perform RANSAC tracking and outputs trajectrory-panel crossing XY coordinates''', epilog="""All is well that ends well.""")
 parser.add_argument('--telescope', '-tel', default=dict_tel["SNJ"], help='Input telescope name. It provides the associated configuration.', type=str2telescope)
-parser.add_argument('--input_data', '-dat', default=[], nargs="*", help='/path/to/datafile/  One can input a data directory, a single datfile, or a list of data files e.g "--input_data <file1.dat> <file2.dat>"', type=str)
+parser.add_argument('--input_data', '-i', default=[], nargs="*", help='/path/to/datafile/  One can input a data directory, a single datfile, or a list of data files e.g "--input_data <file1.dat> <file2.dat>"', type=str)
+parser.add_argument('--out_dir', '-o', default='./test/', help='Path to processing output', type=str) 
 parser.add_argument('--input_type', '-it', default='DATA',  help="'DATA' or 'MC'", type=str)
-parser.add_argument('--out_dir', '-o', default='/Users/raphael/simu/telescope_SNJ/analysis/RANSACtest/', help='Path to processing output', type=str) 
 parser.add_argument('--label', '-l', default='', help='Label of the dataset', type=str)
 parser.add_argument('--max_nfiles', '-max', default=1, help='Maximum number of dataset files to process.', type=int)
 parser.add_argument('--residual_threshold', '-rt', default=50, help='RANSAC "distance-to-model" parameter: "residual_threshold" in mm.',type=float)
@@ -63,7 +59,7 @@ print("PROCESSING...")
 _start_time = time.time()
 recoDir = outDir / "out"
 recoDir.mkdir(parents=True, exist_ok=True)
-print(f"Output dir : {str(recoDir)}")
+
 
 strdate = time.strftime("%d%m%Y_%H%M")
 flog =str(outDir/f'{strdate}.log')
@@ -103,10 +99,10 @@ else: raise ValueError
 #######
 ######
 process_reco.to_csv() ##save reco 
-
+print(f"Output directory : {str(recoDir)}")
 t_sec = round(time.time() - _start_time)
 (t_min, t_sec) = divmod(t_sec,60)
 (t_hour,t_min) = divmod(t_min,60)
-t_end = 'runtime processing : {}hour:{}min:{}sec'.format(t_hour,t_min,t_sec)
+t_end = 'Runtime processing : {}hour:{}min:{}sec'.format(t_hour,t_min,t_sec)
 print(t_end)
 logging.info(t_end)

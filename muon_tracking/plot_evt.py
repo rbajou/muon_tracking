@@ -16,9 +16,9 @@ script_path = os.path.dirname(os.path.abspath(filename))
 import pandas as pd
 import glob
 #personal modules
-from configuration import Telescope, dict_tel, str2telescope
-from processing import InputType
-from analysis import RecoData
+from muon_tracking.configuration import Telescope, dict_tel, str2telescope
+from muon_tracking.processing import InputType
+from muon_tracking.analysis import RecoData
 import argparse
 from random import sample
 

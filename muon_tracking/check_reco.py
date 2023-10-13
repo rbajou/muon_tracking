@@ -5,26 +5,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from pathlib import Path
-import inspect
-import scipy.io as sio
 import argparse
 import time
 import glob
 import pandas as pd
-import json
-from datetime import datetime, timezone
 import warnings
 warnings.filterwarnings("ignore")
 #personal modules
-main_dir = os.environ["HOME"]
-filename = inspect.getframeinfo(inspect.currentframe()).filename
-script_path = os.path.dirname(os.path.abspath(filename))
-simu_path = os.path.abspath(os.path.join(script_path, os.pardir))
-from configuration import str2telescope
-from processing import InputType
-import tools
-from analysis import EvtRate, EventType, RecoData, AnaBase, AnaHitMap, AnaCharge, PlotHitMap
-from acceptance import Acceptance
+from muon_tracking.configuration import str2telescope
+from muon_tracking.processing import InputType
+from muon_tracking.analysis import EvtRate, EventType, RecoData, AnaBase, AnaHitMap, AnaCharge, PlotHitMap
 
 
 def_args={}

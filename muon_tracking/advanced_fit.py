@@ -26,15 +26,9 @@ from scipy.stats import gaussian_kde
 from scipy.signal import find_peaks
 from scipy.optimize import curve_fit
 import scipy.special as sc #binomial coef
-
 import pylandau
-from sklearn.linear_model import LinearRegression
 import iminuit
-import inspect
-filename = inspect.getframeinfo(inspect.currentframe()).filename
-script_path = os.path.dirname(os.path.abspath(filename))
-config_path = os.path.normpath(script_path + os.sep + os.pardir)
-sys.path.append(os.path.join(config_path, '', 'preprocessing/'))
+
 
 
 def gaus(x,amp,x0,sigma):

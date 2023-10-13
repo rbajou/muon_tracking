@@ -337,11 +337,11 @@ class MyAxes3D(axes3d.Axes3D):
         self.mouse_init()
 
     def set_some_features_visibility(self, visible):
-        for t in self.w_zaxis.get_ticklines() + self.w_zaxis.get_ticklabels():
+        for t in self.zaxis.get_ticklines() + self.zaxis.get_ticklabels():
             t.set_visible(visible)
-        self.w_zaxis.line.set_visible(visible)
-        self.w_zaxis.pane.set_visible(visible)
-        self.w_zaxis.label.set_visible(visible)
+        self.zaxis.line.set_visible(visible)
+        self.zaxis.pane.set_visible(visible)
+        self.zaxis.label.set_visible(visible)
 
     def draw(self, renderer):
         # set visibility of some features False 

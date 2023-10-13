@@ -9,21 +9,14 @@ from matplotlib.markers import MarkerStyle
 from scipy.interpolate import griddata
 import scipy.ndimage
 import os
-import inspect
 from pathlib import Path
 from matplotlib.gridspec import GridSpec
 from matplotlib.colors import LogNorm
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from acceptance import Acceptance
-from configuration import Telescope
-
-#Get location of script
-filename = inspect.getframeinfo(inspect.currentframe()).filename
-script_path = os.path.dirname(os.path.abspath(filename))
-config_path = os.path.normpath(script_path + os.sep + os.pardir)
-
-import analysis as ana
-import acceptance as acc
+#personal modules
+from muon_tracking.acceptance import Acceptance
+from muon_tracking.configuration import Telescope
+import muon_tracking.analysis as ana
 
 
 

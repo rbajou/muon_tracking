@@ -24,7 +24,7 @@ from bs4 import BeautifulSoup #fetch data
 from itertools import combinations
 
 #personal modules
-from configuration import dict_tel, Telescope, ChannelMap
+from muon_tracking.configuration import dict_tel, Telescope, ChannelMap
 
 class Dataset:
     @abstractmethod

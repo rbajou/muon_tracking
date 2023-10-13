@@ -16,20 +16,20 @@ import sys
 from matplotlib.gridspec import GridSpec
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import argparse
-import seaborn as sns
 import re
-sns.set()
-sns.set_theme(style="whitegrid", palette="pastel")
+#import seaborn as sns
+# #sns.set()
+# #sns.set_theme(style="whitegrid", palette="pastel")
 import logging
 #personal modules
 #Get location of script
 filename = inspect.getframeinfo(inspect.currentframe()).filename
 script_path = os.path.dirname(os.path.abspath(filename))
 config_path = os.path.normpath(script_path + os.sep + os.pardir)
-import analysis as ana
-from configuration import dict_tel, str2telescope
-from processing import InputType
-from tools.tools import create_subtitle
+import muon_tracking.analysis as ana
+from muon_tracking.configuration import dict_tel, str2telescope
+from muon_tracking.processing import InputType
+from muon_tracking.tools import create_subtitle
 
 
 class Acceptance():
@@ -41,12 +41,8 @@ class Acceptance():
         self.outdir = outdir
         self.os_flux = opensky_flux
         self.evttype = evttype.name
-     
         self.sconfig = [ c[3:] for c in self.df.columns if re.search('DX_(.+?)', c)]
-       
-
         self.acc_dir=outdir
-        
         self.acceptance = {conf: np.zeros(shape=self.hm.binsDXDY[c])  for c,conf  in enumerate(self.sconfig)}
         self.unc = {conf: np.zeros(shape=self.hm.binsDXDY[c])  for c,conf  in enumerate(self.sconfig)}
 
@@ -86,8 +82,8 @@ class Acceptance():
         fig = plt.figure(1, figsize= (16,9))
         nconfigs= self.acceptance.shape[0]
         gs = GridSpec(1,nconfigs)#, left=0.02, right=0.98, wspace=0.1, hspace=0.5)
-        sns.set_style("whitegrid")
-       # max_acc = np.max([np.max(acc) for acc in self.acceptance])
+        # sns.set_style("whitegrid")
+        # max_acc = np.max([np.max(acc) for acc in self.acceptance])
         create_subtitle(fig, gs[0, ::], f'Experimental acceptances: {self.label}')
     
         for i, (_,acc) in enumerate(self.acceptance.items()):
@@ -137,7 +133,7 @@ class Acceptance():
         fig = plt.figure(1, figsize= (16,9))
         #, left=0.02, right=0.98, wspace=0.1, hspace=0.5)
         #gs = GridSpec(1,2)#, left=0.02, right=0.98, wspace=0.1, hspace=0.5)
-        sns.set_style("whitegrid")
+        # sns.set_style("whitegrid")
        # max_acc = np.max([np.max(acc) for acc in self.acceptance])
         #create_subtitle(fig, gs[0, ::], f'Experimental acceptances: {self.label}')
         
